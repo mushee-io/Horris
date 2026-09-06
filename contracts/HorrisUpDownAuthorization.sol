@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "./HorrisOwnable2Step.sol";
+
 interface IHorrisUpDownCalldataGuard {
     struct Inspection {
         address market;
@@ -11,12 +13,8 @@ interface IHorrisUpDownCalldataGuard {
         bool isLong;
     }
 
-    function inspectIncrease(
-        address target,
-        address expectedReceiver,
-        uint256 msgValue,
-        bytes calldata multicallData
-    ) external view returns (Inspection memory result);
+    function inspectIncrease(address target, address expectedReceiver, uint256 msgValue, bytes calldata multicallData)
+        external view returns (Inspection memory result);
 }
 
 interface IHorrisPerpPolicyAuthorization {
@@ -29,16 +27,13 @@ interface IHorrisPerpPolicyAuthorization {
         uint16 stopDistanceBps;
     }
 
-    function validate(Proposal calldata proposal)
-        external
-        view
-        returns (uint16 accountRiskBps, uint16 marginUtilizationBps);
+    function validate(Proposal calldata proposal) external view returns (uint16 accountRiskBps, uint16 marginUtilizationBps);
 }
 
 /// @title HorrisUpDownAuthorization
 /// @notice Replay-safe EIP-712 authorization that binds signed risk context to exact inspected UpDown calldata.
 /// @dev Does not execute trades. For policy validation, this contract must be configured as an authorized HorrisPerpPolicy agent.
-contract HorrisUpDownAuthorization {
+contract HorrisUpDownAuthorization is HorrisOwnable2Step {
     bytes32 public constant AUTHORIZATION_TYPEHASH = keccak256(
         "Authorization(bytes32 calldataHash,address receiver,address market,uint256 accountBalanceUsdE18,uint16 stopDistanceBps,uint256 nonce,uint256 deadline)"
     );
@@ -47,16 +42,13 @@ contract HorrisUpDownAuthorization {
     );
     bytes32 private constant NAME_HASH = keccak256("Horris UpDown Authorization");
     bytes32 private constant VERSION_HASH = keccak256("1");
-    uint256 private constant SECP256K1N_HALF =
-        0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
+    uint256 private constant SECP256K1N_HALF = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
 
     address public authorizer;
     IHorrisUpDownCalldataGuard public immutable guard;
     IHorrisPerpPolicyAuthorization public immutable policy;
     mapping(address => bytes32) public marketIds;
     mapping(uint256 => bool) public usedNonces;
-
-    address public immutable owner;
     bool public paused;
 
     event MarketIdUpdated(address indexed market, bytes32 indexed marketId);
@@ -84,14 +76,8 @@ contract HorrisUpDownAuthorization {
         uint256 deadline;
     }
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "NOT_OWNER");
-        _;
-    }
-
     constructor(address authorizer_, address guard_, address policy_) {
         require(authorizer_ != address(0) && guard_ != address(0) && policy_ != address(0), "ZERO_ADDRESS");
-        owner = msg.sender;
         authorizer = authorizer_;
         guard = IHorrisUpDownCalldataGuard(guard_);
         policy = IHorrisPerpPolicyAuthorization(policy_);
@@ -123,13 +109,7 @@ contract HorrisUpDownAuthorization {
     }
 
     function domainSeparator() public view returns (bytes32) {
-        return keccak256(abi.encode(
-            EIP712_DOMAIN_TYPEHASH,
-            NAME_HASH,
-            VERSION_HASH,
-            block.chainid,
-            address(this)
-        ));
+        return keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this)));
     }
 
     function authorizationDigest(Authorization calldata auth) public view returns (bytes32) {
@@ -152,11 +132,7 @@ contract HorrisUpDownAuthorization {
         bytes calldata multicallData,
         Authorization calldata auth,
         bytes calldata signature
-    ) external returns (
-        IHorrisUpDownCalldataGuard.Inspection memory inspection,
-        uint16 accountRiskBps,
-        uint16 marginUtilizationBps
-    ) {
+    ) external returns (IHorrisUpDownCalldataGuard.Inspection memory inspection, uint16 accountRiskBps, uint16 marginUtilizationBps) {
         require(!paused, "PAUSED");
         require(block.timestamp <= auth.deadline, "AUTH_EXPIRED");
         require(!usedNonces[auth.nonce], "NONCE_USED");
@@ -185,7 +161,6 @@ contract HorrisUpDownAuthorization {
         });
 
         (accountRiskBps, marginUtilizationBps) = policy.validate(proposal);
-
         usedNonces[auth.nonce] = true;
         emit AuthorizationConsumed(
             auth.calldataHash,
