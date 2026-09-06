@@ -5,10 +5,9 @@ import { getUpDownOrders } from "../../../../lib/updown-orders";
 import { buildUnsignedUpDownProtectionPlan, type UpDownProtectionKind } from "../../../../lib/updown-protection";
 import { estimateUpDownDecreaseExecutionFee, getUpDownOraclePrice } from "../../../../lib/updown-live";
 import { encodeUnsignedUpDownProtectionMulticall } from "../../../../lib/updown-calldata";
+import { simulateUnsignedUpDownTransaction } from "../../../../lib/updown-simulate";
 
-function json(data: unknown, status = 200) {
-  return NextResponse.json(data, { status, headers: { "Cache-Control": "no-store" } });
-}
+function json(data: unknown, status = 200) { return NextResponse.json(data, { status, headers: { "Cache-Control": "no-store" } }); }
 function serialize(value: unknown): unknown {
   if (typeof value === "bigint") return value.toString();
   if (Array.isArray(value)) return value.map(serialize);
@@ -37,9 +36,7 @@ export async function POST(request: NextRequest) {
     if (!Number.isFinite(triggerPrice) || triggerPrice <= 0) return json({ error: "A positive trigger price is required" }, 400);
 
     const [positions, orders, oracle] = await Promise.all([
-      getUpDownPositions(account as Address),
-      getUpDownOrders(account as Address),
-      getUpDownOraclePrice(marketToken as Address),
+      getUpDownPositions(account as Address), getUpDownOrders(account as Address), getUpDownOraclePrice(marketToken as Address),
     ]);
     const matches = positions.filter((position) => position.marketToken.toLowerCase() === marketToken && position.side === side);
     if (matches.length === 0) return json({ error: "No matching live UpDown position exists", failClosed: true }, 409);
@@ -54,12 +51,7 @@ export async function POST(request: NextRequest) {
       ? (side === "long" ? triggerPrice < oracleMid : triggerPrice > oracleMid)
       : (side === "long" ? triggerPrice > oracleMid : triggerPrice < oracleMid);
     if (!triggerDirectionValid) {
-      return json({
-        error: `${kind === "stop-loss" ? "Stop-loss" : "Take-profit"} trigger is on the wrong side of the live UpDown oracle price`,
-        failClosed: true,
-        oracle,
-        triggerPrice,
-      }, 409);
+      return json({ error: `${kind === "stop-loss" ? "Stop-loss" : "Take-profit"} trigger is on the wrong side of the live UpDown oracle price`, failClosed: true, oracle, triggerPrice }, 409);
     }
 
     const targetOrderType = kind === "stop-loss" ? 6 : 5;
@@ -76,12 +68,27 @@ export async function POST(request: NextRequest) {
       estimateUpDownDecreaseExecutionFee(),
     ]);
     const transaction = encodeUnsignedUpDownProtectionMulticall(plan, fee.bufferedFeeWei);
+    let simulation;
+    try {
+      simulation = await simulateUnsignedUpDownTransaction(account as Address, transaction);
+    } catch (error) {
+      return json(serialize({
+        error: "Exact UpDown protection eth_call simulation reverted",
+        detail: error instanceof Error ? error.message : "Unknown simulation failure",
+        oracle,
+        existingProtection: { kind, activeOrderCount: activeExisting.length, coveredUsd, uncoveredUsd, coveragePercent },
+        unsignedTransaction: transaction,
+        executionEnabled: false,
+        failClosed: true,
+      }), 409);
+    }
+
     return json(serialize({
       venue: "UpDown", chainId: 42220, account, position, oracle,
       existingProtection: { kind, activeOrderCount: activeExisting.length, coveredUsd, uncoveredUsd, coveragePercent },
-      protection: plan, liveExecutionFee: fee, unsignedTransaction: transaction, compiledAt: new Date().toISOString(),
+      protection: plan, liveExecutionFee: fee, unsignedTransaction: transaction, simulation, compiledAt: new Date().toISOString(),
       executionEnabled: false, failClosed: true,
-      nextStep: "Review only. Horris will not submit this protection order from the current MVP.",
+      nextStep: "Exact protection calldata passed live eth_call simulation. Review only; submission remains disabled.",
     }));
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Protection preview failed", executionEnabled: false, failClosed: true }, 502);
