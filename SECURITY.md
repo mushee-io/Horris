@@ -1,10 +1,10 @@
 # Horris security model
 
-Horris is unaudited testnet-stage software. Do not use production funds through the Horris vault, and do not treat the current UpDown integration as an approved mainnet execution system.
+Horris is unaudited software. Do not use production funds through the Horris vault, and do not treat the current UpDown integration as an approved mainnet execution system.
 
 ## Core rule
 
-Strategy/AI output is advisory. Horris must fail closed when custody, venue state, risk policy, oracle state, transaction compilation or simulation cannot be independently checked.
+Strategy/AI output is advisory. Horris must fail closed when custody, venue state, risk policy, oracle state, transaction compilation, authorization or simulation cannot be independently checked.
 
 ## Stablecoin custody boundary
 
@@ -12,48 +12,97 @@ Strategy/AI output is advisory. Horris must fail closed when custody, venue stat
 
 `HorrisMentoAdapter` pins the Mento Router, FPMM factory, USDC and USDm. Routes must be continuous, 1–3 hops, use the pinned factory and end at the configured output asset. Output is measured by balance delta before funds return to the vault.
 
-The owner can still change configured risk/allowlist policy within hard-coded contract bounds. Horris contracts have not received an independent audit or formal verification.
+The stablecoin contracts have not received an independent audit or formal verification.
 
-## Perpetual boundary
+## Perpetual execution boundary
 
-The current perp subsystem targets UpDown on Celo mainnet but **cannot broadcast an UpDown transaction**.
+The current perp subsystem targets UpDown on Celo mainnet but the Horris application **cannot broadcast an UpDown transaction**.
 
-`HorrisPerpPolicy` is a venue-independent guard. It checks market allowlisting, leverage, maximum notional, projected account risk, margin utilization and a conservative stop buffer. It does not independently derive those values from UpDown calldata, so it is not yet a sufficient authorization boundary for mainnet execution.
+The current onchain pre-broadcast stack is:
 
-A future execution architecture must derive/verify the exact venue values it submits and couple them to Horris policy before signing is enabled.
+```text
+EIP-712 Authorization
+        ↓
+HorrisUpDownAuthorization
+        ↓
+HorrisUpDownCalldataGuard
+        ↓
+HorrisPerpPolicy
+```
+
+This stack verifies an exact intended transaction and risk envelope. It is not yet a custody/execution architecture.
+
+### `HorrisUpDownCalldataGuard`
+
+The guard decodes the actual UpDown `multicall(bytes[])` and accepts only the exact MarketIncrease shape Horris currently supports:
+
+1. `sendWnt(OrderVault, executionFee)`
+2. `sendTokens(USDT, OrderVault, collateralAmount)`
+3. `createOrder(params)`
+
+It pins ExchangeRouter, OrderVault and USDT; rejects reordered/extra calls; requires the expected receiver; rejects callback/UI-fee/swap-path/referral behavior; allowlists markets; checks fee/value/collateral consistency; requires MarketIncrease order type; and derives notional/leverage from actual calldata rather than caller-reported metrics.
+
+### `HorrisUpDownAuthorization`
+
+The authorization contract verifies replay-safe EIP-712 signatures over:
+
+- exact calldata hash;
+- receiver;
+- market;
+- account balance used for risk calculation;
+- stop distance;
+- nonce;
+- deadline.
+
+The owner can rotate the dedicated EIP-712 authorizer and invalidate an unused nonce. High-s signatures and invalid `v` values are rejected. The nonce is consumed only after signature verification, calldata inspection and policy validation all succeed on a real state-changing call.
+
+The application can generate the same typed-data payload only after the exact UpDown transaction passes live readiness and `eth_call` preflight. The current UI exposes it for review only and does not request a signature.
+
+`POST /api/perps/authorization-simulate` can later test a supplied signature using `eth_call`. That proves the signature, nonce, exact calldata firewall and Horris policy currently agree without changing state or consuming the nonce.
+
+### `HorrisPerpPolicy`
+
+The policy receives normalized margin/notional/leverage values derived by the calldata guard plus signed account-balance/stop context. It enforces market allowlisting, leverage, maximum notional, projected account risk, margin utilization and a conservative stop buffer.
+
+## Admin / key-management boundary
+
+`HorrisPerpPolicy`, `HorrisUpDownCalldataGuard` and `HorrisUpDownAuthorization` use a shared two-step ownership model:
+
+1. current owner proposes `pendingOwner`;
+2. the intended owner must call `acceptOwnership`;
+3. the current owner can cancel before acceptance.
+
+The deployment script reads `HORRIS_PERP_OWNER` and proposes all three contracts to that intended long-term admin/multisig. The deployment verifier distinguishes a correctly pending handoff from an accepted handoff and rejects unrelated ownership state.
+
+The EIP-712 `authorizer` is deliberately separate from contract ownership and is rotatable. A production setup should not reuse the deployer key as authorizer or long-term owner.
 
 ## UpDown read/compile protections
 
 Current Horris code:
 
 - pins UpDown contract/market metadata from a known public source commit;
-- verifies live contract bytecode before execution-bound readiness;
-- reads positions using UpDown Reader;
-- reads pending orders directly from UpDown DataStore;
-- reads live increase/decrease execution-fee configuration from DataStore plus current Celo gas price;
-- applies a 125% fee buffer and fails closed when fee reads fail;
-- reads the UpDown Chainlink price provider and rejects invalid/stale (>10 minute) prices;
-- compiles only Horris-approved MarketIncrease orders;
-- limits acceptable-price slippage in the unsigned entry compiler;
+- verifies live core, selected-market, collateral-token and oracle-provider bytecode before execution-bound readiness;
+- reads positions from UpDown Reader and pending orders from DataStore;
+- reads live execution-fee configuration plus Celo gas price and uses a fee buffer;
+- reads the UpDown Chainlink price provider and rejects invalid/stale prices;
+- compiles only supported Horris-approved MarketIncrease orders;
+- bounds acceptable-price slippage;
 - checks USDT balance, Router allowance and native CELO fee balance;
-- can `eth_call` simulate the exact entry multicall when allowance/state make simulation meaningful;
-- confirms a future entry using actual pending-order / live-position state rather than trusting a transaction hash;
-- calculates active stop coverage from pending StopLossDecrease orders;
-- treats frozen stops as blocking failures;
-- compiles stop/TP protection only from a fresh live position read;
-- subtracts existing active coverage and compiles only uncovered position size;
-- rejects stop-loss/take-profit triggers on the wrong side of the fresh live oracle price;
-- compiles protection as `sendWnt → createOrder` with no additional collateral approval;
-- `eth_call` simulates exact protection calldata;
-- re-reads pending order state before compiling a cancellation;
-- can compile and simulate `cancelOrder` recovery calldata for frozen/pending exposure;
-- never sets `executionEnabled` to true in the current perp API/state machine.
+- `eth_call` simulates exact entry calldata when current state makes that meaningful;
+- generates review-only EIP-712 authorization data from the exact compiled calldata hash only after clean preflight;
+- confirms future entries from actual pending-order/live-position state rather than trusting transaction hashes;
+- computes active stop coverage and treats frozen stops as blocking failures;
+- compiles stop/TP protection only from fresh live position state and only for uncovered size;
+- rejects wrong-side protection triggers against a fresh venue oracle;
+- `eth_call` simulates exact protection and cancellation calldata;
+- re-reads pending venue state before cancellation compilation;
+- never sets perp `executionEnabled` to true in the current application.
 
 ## Asynchronous protection risk
 
-UpDown entry and protective decrease orders are separate asynchronous actions. A position can exist before a stop-loss order has been successfully created/executed by the venue.
+UpDown entry and protective decrease orders are separate asynchronous actions. A position can exist before a stop-loss order is successfully created/executed by the venue.
 
-Therefore Horris explicitly models:
+Horris explicitly models:
 
 - `awaiting-position`
 - `protection-required`
@@ -61,39 +110,43 @@ Therefore Horris explicitly models:
 - `review-exposure`
 - `blocked`
 
-A future signing system must not describe an entry as “protected” until the live position is observed and sufficient active stop coverage is visible in venue state.
+A future signing system must not describe an entry as protected until the live position is observed and sufficient active stop coverage is visible in venue state. If protection compilation/simulation fails after a future entry, the system must block new exposure and surface recovery; it must not silently continue automation.
 
-If protection compilation or simulation fails after a future entry, the system must fail closed, prevent new exposure and surface a recovery path. It must not silently continue automation.
-
-## Frontend/API safeguards
+## Frontend / API / Discord safeguards
 
 - wallet-direct Mento execution is disabled by default;
 - stable vault execution is simulated before signing;
-- perp analysis, entry compilation, protection compilation, recovery compilation and state monitoring are read-only/unsigned;
-- no current perp API sends a transaction;
-- Discord requests use Ed25519 verification and stale timestamp rejection;
-- Discord commands are advisory only.
+- perp entry/protection/cancellation paths are unsigned and read-only in the current app;
+- no current perp API broadcasts a transaction;
+- EIP-712 authorization data is review-only in the dashboard;
+- authorization signature validation is available only as `eth_call` simulation;
+- Discord production requests use Ed25519 verification and stale-timestamp rejection;
+- `/perp-risk` performs deterministic risk analysis only;
+- `/perp-status` reads live positions/orders and protection phases only;
+- Discord never requests a wallet signature or submits an order.
 
 ## Residual risks
 
 Important remaining risks include:
 
-- no independent audit/formal verification;
+- no independent audit or formal verification;
 - Celo, Mento or UpDown vulnerabilities/configuration/governance changes;
 - stale or compromised RPC/frontends;
-- owner/agent key compromise;
-- UpDown order semantics or DataStore layout changing after the pinned source revision;
-- oracle outages, keeper delays, price impact, funding, fees and venue liquidation rules;
+- owner, authorizer or user key compromise;
+- UpDown order semantics/DataStore layout changing after the pinned source revision;
+- oracle outages, keeper delays, price impact, funding, fees and liquidation mechanics;
 - `eth_call` success does not guarantee a later transaction will succeed because chain state can change;
 - asynchronous entry → protection exposure cannot be made atomic by the current UpDown interface;
-- the current `HorrisPerpPolicy` is not yet cryptographically coupled to actual UpDown order calldata;
-- no current mainnet perp executor has been approved.
+- the current authorization stack validates exact intended calldata but does not solve custody or token-transfer authority for an automated executor;
+- no Horris UpDown mainnet executor/smart-account module has been approved or enabled.
+
+A future executor must not simply call UpDown from the authorization contract: UpDown collateral movement depends on the caller/token approval model. The custody/smart-account design must be reviewed before a broadcast path is implemented.
 
 ## Incident / recovery model
 
 For a deployed Horris testnet vault: pause, revoke the agent, disable affected policies/adapters, withdraw accounted assets and preserve transaction evidence.
 
-For future perp execution: stop creation of new exposure first. Re-read positions/orders, identify frozen or uncovered risk, prepare cancellation/close/protection recovery, and do not resume automation until venue state is unambiguous and reviewed.
+For a future perp deployment: pause authorization/policy/guard as appropriate, rotate the EIP-712 authorizer if compromised, invalidate known unused nonces, stop creation of new exposure, re-read live positions/orders, and resolve frozen/uncovered exposure before automation resumes.
 
 ## Secrets
 
