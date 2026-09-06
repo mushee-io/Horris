@@ -40,7 +40,8 @@ contract HorrisMentoAdapterTest {
 
     constructor() {
         input = new AdapterToken(); output = new AdapterToken(); router = new MockMentoRouter(output); vault = new AdapterVaultCaller(input);
-        adapter = new HorrisMentoAdapter(address(vault), address(router), address(input), address(output)); vault.setAdapter(adapter); input.mint(address(vault), 100e6);
+        adapter = new HorrisMentoAdapter(address(vault), address(router), address(router), address(input), address(output));
+        vault.setAdapter(adapter); input.mint(address(vault), 100e6);
     }
 
     function route(address assetIn, address assetOut) internal view returns (bytes memory) {
@@ -68,11 +69,11 @@ contract HorrisMentoAdapterTest {
         require(!badIn && !badOut, "bad route endpoints should revert");
     }
 
-    function testRejectsZeroFactory() public {
+    function testRejectsUnapprovedFactory() public {
         IMentoRouter.Route[] memory routes = new IMentoRouter.Route[](1);
-        routes[0] = IMentoRouter.Route({ from: address(input), to: address(output), factory: address(0) });
+        routes[0] = IMentoRouter.Route({ from: address(input), to: address(output), factory: address(0xBEEF) });
         (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (10e6, 9e6, abi.encode(routes), block.timestamp + 5 minutes)));
-        require(!ok, "zero factory should revert");
+        require(!ok, "unapproved factory should revert");
     }
 
     function testRejectsBrokenMultiHopRoute() public {
