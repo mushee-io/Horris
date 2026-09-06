@@ -2,14 +2,10 @@ import { Mento, deadlineFromMinutes } from "@mento-protocol/mento-sdk";
 import { encodeAbiParameters, formatUnits, parseUnits, type Address, type Hex } from "viem";
 import { celoSepolia } from "viem/chains";
 import { CELO_SEPOLIA_RPC, MENTO_FPMM_FACTORY, TOKENS } from "./celo";
+import { riskPolicy, type HorrisRisk } from "./risk-config";
 
-export type HorrisRisk = "Conservative" | "Balanced" | "Aggressive";
-
-export const riskPolicy = {
-  Conservative: { slippage: 0.25, maxAllocation: 250 },
-  Balanced: { slippage: 0.5, maxAllocation: 1000 },
-  Aggressive: { slippage: 1, maxAllocation: 5000 },
-} as const;
+export type { HorrisRisk } from "./risk-config";
+export { riskPolicy } from "./risk-config";
 
 export async function getMento() { return Mento.create(celoSepolia.id, CELO_SEPOLIA_RPC); }
 
