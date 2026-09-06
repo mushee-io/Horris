@@ -3,6 +3,7 @@ import type { Address } from "viem";
 import { buildUnsignedUpDownIncreaseOrderPlan } from "../../../../lib/updown-order";
 import { encodeUnsignedUpDownMulticall } from "../../../../lib/updown-calldata";
 import { getUpDownEntryReadiness } from "../../../../lib/updown-readiness";
+import { simulateUnsignedUpDownTransaction } from "../../../../lib/updown-simulate";
 import type { PerpIntent, PerpRiskProfile, PerpSide } from "../../../../lib/perps";
 import { getUpDownMarket } from "../../../../lib/updown";
 
@@ -44,23 +45,37 @@ export async function POST(request: NextRequest) {
     if (!readiness.readyForSimulation) {
       return json(serialize({ error: "UpDown entry readiness checks failed", readiness, executionEnabled: false, failClosed: true }), 409);
     }
+
     const transaction = encodeUnsignedUpDownMulticall(plan, readiness.requiredExecutionFee);
+    let simulation: unknown = { success: false, skipped: true, reason: "Router approval is required before the exact entry multicall can be simulated against live state." };
+    if (!readiness.approvalRequired) {
+      try {
+        simulation = await simulateUnsignedUpDownTransaction(receiver, transaction);
+      } catch (error) {
+        return json(serialize({
+          error: "Exact UpDown entry eth_call simulation reverted",
+          detail: error instanceof Error ? error.message : "Unknown simulation failure",
+          readiness,
+          unsignedTransaction: transaction,
+          executionEnabled: false,
+          failClosed: true,
+        }), 409);
+      }
+    }
+
     return json(serialize({
       ...plan,
-      liveExecutionFee: {
-        bufferedFeeWei: readiness.requiredExecutionFee,
-        bufferedFeeCelo: readiness.requiredExecutionFeeCelo,
-        source: "live-readiness",
-      },
+      liveExecutionFee: { bufferedFeeWei: readiness.requiredExecutionFee, bufferedFeeCelo: readiness.requiredExecutionFeeCelo, source: "live-readiness" },
       params: { ...plan.params, numbers: { ...plan.params.numbers, executionFee: readiness.requiredExecutionFee } },
       unsignedTransaction: transaction,
       readiness,
+      simulation,
       requiresLiveExecutionFee: false,
       feeResolvedAt: new Date().toISOString(),
       executionEnabled: false,
       nextStep: readiness.approvalRequired
-        ? "Explicit Router approval is required before any future simulation/submission path."
-        : "Readiness checks pass. Entry submission remains disabled until the protected execution sequence is completed.",
+        ? "Explicit Router approval is required before exact eth_call simulation can pass. Submission remains disabled."
+        : "Exact entry calldata passed live eth_call simulation. Submission remains disabled until the protected execution sequence is completed.",
     }));
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Order preview failed", executionEnabled: false, failClosed: true }, 400);
