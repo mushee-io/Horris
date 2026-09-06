@@ -5,6 +5,12 @@ import { getPortfolio, getVaultActivity } from "../lib/portfolio";
 import { simulatePolicy } from "../lib/policy";
 import { proposeStableStrategy } from "../lib/strategy";
 import type { HorrisRisk } from "../lib/mento";
+import { analyzePerpIntent, type PerpIntent } from "../lib/perps";
+import { buildUnsignedUpDownIncreaseOrderPlan } from "../lib/updown-order";
+import { buildUpDownAuthorizationTypedData, type UpDownAuthorizationPayloadInput } from "../lib/updown-authorization";
+import { derivePerpProtectionSequence } from "../lib/perp-sequence";
+import type { HorrisUpDownPosition } from "../lib/updown-positions";
+import type { HorrisUpDownOrder } from "../lib/updown-orders";
 
 export class HorrisClient {
   constructor(private readonly publicClient: PublicClient) {}
@@ -28,6 +34,22 @@ export class HorrisClient {
     return { proposal, simulation, automation: evaluateAutomation(mode, proposal, simulation, permission) };
   }
 
+  analyzePerp(intent: PerpIntent) {
+    return analyzePerpIntent(intent);
+  }
+
+  compileUnsignedUpDownOrder(intent: PerpIntent, receiver: Address, acceptablePriceSlippageBps = 50) {
+    return buildUnsignedUpDownIncreaseOrderPlan(intent, receiver, acceptablePriceSlippageBps);
+  }
+
+  buildUpDownAuthorization(input: UpDownAuthorizationPayloadInput) {
+    return buildUpDownAuthorizationTypedData(input);
+  }
+
+  protectionState(marketToken: string, side: "long" | "short", positions: HorrisUpDownPosition[], orders: HorrisUpDownOrder[]) {
+    return derivePerpProtectionSequence(marketToken, side, positions, orders);
+  }
+
   portfolio(account: Address) {
     return getPortfolio(this.publicClient, account);
   }
@@ -42,3 +64,8 @@ export * from "../lib/automation";
 export * from "../lib/policy";
 export * from "../lib/portfolio";
 export * from "../lib/strategy";
+export * from "../lib/perps";
+export * from "../lib/updown";
+export * from "../lib/updown-order";
+export * from "../lib/updown-authorization";
+export * from "../lib/perp-sequence";
