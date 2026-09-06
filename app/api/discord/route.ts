@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import nacl from "tweetnacl";
-import { handleDiscordCommand, isHorrisRisk } from "../../../lib/discord";
+import { handleDiscordCommand, isHorrisRisk, isPerpSide } from "../../../lib/discord";
 
 export const runtime = "nodejs";
 
@@ -12,14 +12,11 @@ function hexToBytes(value: string) {
 function verifyDiscordRequest(rawBody: string, request: NextRequest) {
   const publicKey = process.env.DISCORD_PUBLIC_KEY;
   if (!publicKey) return process.env.NODE_ENV !== "production";
-
   const signature = request.headers.get("x-signature-ed25519");
   const timestamp = request.headers.get("x-signature-timestamp");
   if (!signature || !timestamp) return false;
-
   const timestampSeconds = Number(timestamp);
   if (!Number.isFinite(timestampSeconds) || Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds) > 300) return false;
-
   try {
     const message = new TextEncoder().encode(timestamp + rawBody);
     return nacl.sign.detached.verify(message, hexToBytes(signature), hexToBytes(publicKey));
@@ -39,16 +36,17 @@ function optionMap(options: unknown) {
   }
   return result;
 }
-
 function discordResponse(content: string, status = 200) {
   return NextResponse.json({ type: 4, data: { content, flags: 64 } }, { status });
+}
+function finitePositive(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : undefined;
 }
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
-  if (!verifyDiscordRequest(rawBody, request)) {
-    return NextResponse.json({ error: "Invalid Discord signature." }, { status: 401 });
-  }
+  if (!verifyDiscordRequest(rawBody, request)) return NextResponse.json({ error: "Invalid Discord signature." }, { status: 401 });
 
   let body: unknown;
   try { body = JSON.parse(rawBody); }
@@ -58,27 +56,51 @@ export async function POST(request: NextRequest) {
   const input = body as Record<string, unknown>;
   if (input.type === 1) return NextResponse.json({ type: 1 });
 
-  // Real Discord application-command payload.
   if (input.type === 2 && input.data && typeof input.data === "object") {
     const data = input.data as Record<string, unknown>;
     const name = data.name;
     if (name === "help") return discordResponse(handleDiscordCommand({ name: "help" }).content);
-    if (name !== "strategy" && name !== "risk") return discordResponse("Unknown Horris command.");
-
     const options = optionMap(data.options);
+
+    if (name === "perp-risk") {
+      if (!isHorrisRisk(options.risk) || !isPerpSide(options.side)) return discordResponse("Risk or side is invalid.");
+      const balance = finitePositive(options.balance);
+      const margin = finitePositive(options.margin);
+      const leverage = finitePositive(options.leverage);
+      const entry = finitePositive(options.entry);
+      const stop = finitePositive(options.stop);
+      const takeProfit = options.take_profit === undefined ? undefined : finitePositive(options.take_profit);
+      const market = typeof options.market === "string" ? options.market : "";
+      if (!balance || !margin || !leverage || !entry || !stop || !market || (options.take_profit !== undefined && !takeProfit)) {
+        return discordResponse("Perp inputs must be valid positive numbers and a supported market.");
+      }
+      try {
+        return discordResponse(handleDiscordCommand({ name, market, side: options.side, balance, margin, leverage, entry, stop, takeProfit, risk: options.risk }).content);
+      } catch (error) {
+        return discordResponse(error instanceof Error ? error.message : "Perp risk analysis failed.");
+      }
+    }
+
+    if (name !== "strategy" && name !== "risk") return discordResponse("Unknown Horris command.");
     if (!isHorrisRisk(options.risk)) return discordResponse("Risk must be Conservative, Balanced, or Aggressive.");
     const amount = Number(options.amount);
     const balance = Number(options.balance);
-    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(balance) || balance < 0) {
-      return discordResponse("Amount must be positive and balance must be a valid non-negative number.");
-    }
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(balance) || balance < 0) return discordResponse("Amount must be positive and balance must be a valid non-negative number.");
     return discordResponse(handleDiscordCommand({ name, amount, balance, risk: options.risk }).content);
   }
 
-  // Development-only compact payload used for local API testing.
   if (process.env.NODE_ENV === "production") return NextResponse.json({ error: "Unsupported Discord interaction." }, { status: 400 });
   const name = input.name;
   if (name === "help") return NextResponse.json(handleDiscordCommand({ name: "help" }));
+  if (name === "perp-risk") {
+    if (!isHorrisRisk(input.risk) || !isPerpSide(input.side)) return NextResponse.json({ content: "Invalid perp risk or side." }, { status: 400 });
+    const balance = finitePositive(input.balance); const margin = finitePositive(input.margin); const leverage = finitePositive(input.leverage);
+    const entry = finitePositive(input.entry); const stop = finitePositive(input.stop); const takeProfit = input.takeProfit === undefined ? undefined : finitePositive(input.takeProfit);
+    const market = typeof input.market === "string" ? input.market : "";
+    if (!balance || !margin || !leverage || !entry || !stop || !market || (input.takeProfit !== undefined && !takeProfit)) return NextResponse.json({ content: "Invalid perp inputs." }, { status: 400 });
+    try { return NextResponse.json(handleDiscordCommand({ name, market, side: input.side, balance, margin, leverage, entry, stop, takeProfit, risk: input.risk })); }
+    catch (error) { return NextResponse.json({ content: error instanceof Error ? error.message : "Perp risk analysis failed." }, { status: 400 }); }
+  }
   if (name !== "strategy" && name !== "risk") return NextResponse.json({ content: "Unknown Horris command." }, { status: 400 });
   if (!isHorrisRisk(input.risk)) return NextResponse.json({ content: "Risk must be Conservative, Balanced, or Aggressive." }, { status: 400 });
   const amount = Number(input.amount); const balance = Number(input.balance);
