@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "./HorrisOwnable2Step.sol";
+
 /// @title HorrisPerpPolicy
 /// @notice Venue-independent policy guard for normalized perpetual trade proposals.
 /// @dev This contract does not execute trades or custody funds. A future venue adapter must recompute
 ///      or independently verify normalized proposal values before relying on this policy for execution.
-contract HorrisPerpPolicy {
-    address public immutable owner;
+contract HorrisPerpPolicy is HorrisOwnable2Step {
     address public agent;
     bool public paused;
 
@@ -39,18 +40,12 @@ contract HorrisPerpPolicy {
     event LimitsUpdated(uint32 maxLeverageBps, uint16 maxAccountRiskBps, uint16 maxMarginUtilizationBps, uint256 maxNotionalUsdE18);
     event MarketUpdated(bytes32 indexed marketId, bool allowed);
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "NOT_OWNER");
-        _;
-    }
-
     modifier onlyAuthorized() {
         require(msg.sender == owner || (agent != address(0) && msg.sender == agent), "NOT_AUTHORIZED");
         _;
     }
 
     constructor(address agent_, Limits memory initialLimits) {
-        owner = msg.sender;
         require(agent_ != msg.sender, "OWNER_AS_AGENT");
         agent = agent_;
         _setLimits(initialLimits);
@@ -104,8 +99,6 @@ contract HorrisPerpPolicy {
         require(accountRiskBps <= limits.maxAccountRiskBps, "ACCOUNT_RISK_CAP");
         require(marginUtilizationBps <= limits.maxMarginUtilizationBps, "MARGIN_UTILIZATION_CAP");
 
-        // A stop must be closer than the gross adverse move that would consume posted margin.
-        // This is deliberately conservative and is NOT a venue liquidation-price calculation.
         uint256 grossMarginExhaustionMoveBps = uint256(BPS) * BPS / proposal.leverageBps;
         require(proposal.stopDistanceBps < grossMarginExhaustionMoveBps, "STOP_BUFFER");
     }
