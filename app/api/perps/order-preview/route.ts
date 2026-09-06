@@ -1,9 +1,11 @@
+import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import type { Address } from "viem";
+import { isAddress, type Address } from "viem";
 import { buildUnsignedUpDownIncreaseOrderPlan } from "../../../../lib/updown-order";
 import { encodeUnsignedUpDownMulticall } from "../../../../lib/updown-calldata";
 import { getUpDownEntryReadiness } from "../../../../lib/updown-readiness";
 import { simulateUnsignedUpDownTransaction } from "../../../../lib/updown-simulate";
+import { buildUpDownAuthorizationTypedData } from "../../../../lib/updown-authorization";
 import type { PerpIntent, PerpRiskProfile, PerpSide } from "../../../../lib/perps";
 import { getUpDownMarket } from "../../../../lib/updown";
 
@@ -33,6 +35,7 @@ export async function POST(request: NextRequest) {
     if (!marketMeta) return json({ error: "Unsupported UpDown market" }, 400);
     if (!sides.includes(side)) return json({ error: "Side must be long or short" }, 400);
     if (!risks.includes(risk)) return json({ error: "Invalid Horris risk profile" }, 400);
+    if (!isAddress(receiver)) return json({ error: "A valid receiver address is required" }, 400);
 
     const takeProfit = input.takeProfit === undefined || input.takeProfit === null || input.takeProfit === "" ? undefined : Number(input.takeProfit);
     const intent: PerpIntent = {
@@ -46,17 +49,9 @@ export async function POST(request: NextRequest) {
 
     let simulation: unknown;
     if (!readiness.readyForSimulation) {
-      simulation = {
-        success: false,
-        skipped: true,
-        reason: "Hard readiness checks failed; exact eth_call is intentionally skipped.",
-      };
+      simulation = { success: false, skipped: true, reason: "Hard readiness checks failed; exact eth_call is intentionally skipped." };
     } else if (readiness.approvalRequired) {
-      simulation = {
-        success: false,
-        skipped: true,
-        reason: "Router approval is required before the exact entry multicall can be simulated against live state.",
-      };
+      simulation = { success: false, skipped: true, reason: "Router approval is required before the exact entry multicall can be simulated against live state." };
     } else {
       try {
         simulation = await simulateUnsignedUpDownTransaction(receiver, transaction);
@@ -71,6 +66,38 @@ export async function POST(request: NextRequest) {
     }
 
     const preflightPassed = readiness.readyForSimulation && !readiness.approvalRequired && (simulation as { success?: boolean }).success === true;
+    const authorizationContract = process.env.HORRIS_UPDOWN_AUTHORIZATION;
+    let authorizationPreview: unknown = {
+      available: false,
+      reason: preflightPassed
+        ? "HORRIS_UPDOWN_AUTHORIZATION is not configured with a valid deployed authorization contract."
+        : "Authorization payload is withheld until the exact transaction passes live preflight.",
+    };
+
+    if (preflightPassed && authorizationContract && isAddress(authorizationContract)) {
+      const nonce = BigInt(`0x${randomBytes(32).toString("hex")}`);
+      const deadline = BigInt(Math.floor(Date.now() / 1_000) + 10 * 60);
+      const typedData = buildUpDownAuthorizationTypedData({
+        authorizationContract,
+        calldataHash: transaction.calldataHash,
+        receiver,
+        market: marketMeta.marketToken,
+        accountBalanceUsd: String(input.accountBalanceUsd ?? ""),
+        entryPrice: intent.entryPrice,
+        stopLoss: intent.stopLoss,
+        nonce,
+        deadline,
+      });
+      authorizationPreview = {
+        available: true,
+        typedData,
+        expiresAt: new Date(Number(deadline) * 1_000).toISOString(),
+        signingEnabled: false,
+        submissionEnabled: false,
+        note: "Review-only EIP-712 payload. Horris does not request a signature or submit the UpDown transaction in the current MVP.",
+      };
+    }
+
     return json(serialize({
       ...plan,
       liveExecutionFee: { bufferedFeeWei: readiness.requiredExecutionFee, bufferedFeeCelo: readiness.requiredExecutionFeeCelo, source: "live-readiness" },
@@ -79,12 +106,13 @@ export async function POST(request: NextRequest) {
       readiness,
       simulation,
       preflightPassed,
+      authorizationPreview,
       requiresLiveExecutionFee: false,
       feeResolvedAt: new Date().toISOString(),
       executionEnabled: false,
       failClosed: true,
       nextStep: preflightPassed
-        ? "Exact entry calldata passed live eth_call simulation. Submission remains disabled until the protected execution sequence is completed."
+        ? "Exact entry calldata passed live eth_call simulation. If the onchain authorization contract is configured, review-only EIP-712 data is included; signing and submission remain disabled."
         : readiness.approvalRequired
           ? "Preview compiled. Explicit Router approval is still required; submission remains disabled."
           : "Preview compiled, but live readiness/simulation is not clean. Resolve failed checks before any future signing path.",
