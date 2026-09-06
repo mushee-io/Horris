@@ -6,13 +6,12 @@ function optionalAddress(value?: string): Address | undefined {
 
 export const HORRIS_VAULT = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_VAULT);
 export const HORRIS_MENTO_ADAPTER = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_MENTO_ADAPTER);
-export const HORRIS_DEPLOYMENT_BLOCK = process.env.NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK
-  ? BigInt(process.env.NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK)
-  : undefined;
+export const HORRIS_DEPLOYMENT_BLOCK = process.env.NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK ? BigInt(process.env.NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK) : undefined;
 
 export const horrisVaultAbi = [
   { type: "function", name: "deposit", stateMutability: "nonpayable", inputs: [{ name: "asset", type: "address" }, { name: "amount", type: "uint256" }], outputs: [] },
   { type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ name: "asset", type: "address" }, { name: "amount", type: "uint256" }, { name: "recipient", type: "address" }], outputs: [] },
+  { type: "function", name: "execute", stateMutability: "nonpayable", inputs: [{ name: "adapter", type: "address" }, { name: "assetIn", type: "address" }, { name: "amountIn", type: "uint256" }, { name: "amountOutMin", type: "uint256" }, { name: "slippageBps", type: "uint16" }, { name: "routeData", type: "bytes" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "amountOut", type: "uint256" }] },
   { type: "function", name: "vaultBalance", stateMutability: "view", inputs: [{ name: "asset", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
   { type: "function", name: "depositedByAsset", stateMutability: "view", inputs: [{ name: "", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
   { type: "function", name: "paused", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "bool" }] },
