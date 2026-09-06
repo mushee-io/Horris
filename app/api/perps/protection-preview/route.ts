@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAddress, type Address } from "viem";
 import { getUpDownPositions } from "../../../../lib/updown-positions";
+import { getUpDownOrders } from "../../../../lib/updown-orders";
 import { buildUnsignedUpDownProtectionPlan, type UpDownProtectionKind } from "../../../../lib/updown-protection";
 import { estimateUpDownDecreaseExecutionFee } from "../../../../lib/updown-live";
 import { encodeUnsignedUpDownProtectionMulticall } from "../../../../lib/updown-calldata";
@@ -37,15 +38,42 @@ export async function POST(request: NextRequest) {
     if (kind !== "stop-loss" && kind !== "take-profit") return json({ error: "Protection kind must be stop-loss or take-profit" }, 400);
     if (!Number.isFinite(triggerPrice) || triggerPrice <= 0) return json({ error: "A positive trigger price is required" }, 400);
 
-    // Never trust a client-supplied size/collateral tuple. Re-read the live position and compile from venue state.
-    const positions = await getUpDownPositions(account as Address);
+    // Never trust client-supplied position size/collateral. Re-read both live positions and pending venue orders.
+    const [positions, orders] = await Promise.all([
+      getUpDownPositions(account as Address),
+      getUpDownOrders(account as Address),
+    ]);
     const matches = positions.filter((position) => position.marketToken.toLowerCase() === marketToken && position.side === side);
     if (matches.length === 0) return json({ error: "No matching live UpDown position exists", failClosed: true }, 409);
     if (matches.length > 1) return json({ error: "Multiple matching positions require collateral disambiguation", failClosed: true }, 409);
 
     const position = matches[0];
+    const positionSizeUsd = Number(position.sizeUsd);
+    if (!Number.isFinite(positionSizeUsd) || positionSizeUsd <= 0) return json({ error: "Live UpDown position size is invalid", failClosed: true }, 409);
+
+    const targetOrderType = kind === "stop-loss" ? 6 : 5;
+    const activeExisting = orders.filter((order) =>
+      order.marketToken.toLowerCase() === marketToken &&
+      order.side === side &&
+      order.orderType === targetOrderType &&
+      !order.isFrozen
+    );
+    const coveredUsd = activeExisting.reduce((sum, order) => sum + Math.max(0, Number(order.sizeUsd)), 0);
+    const uncoveredUsd = Math.max(0, positionSizeUsd - coveredUsd);
+    const coveragePercent = positionSizeUsd > 0 ? Math.min(100, coveredUsd / positionSizeUsd * 100) : 0;
+
+    if (uncoveredUsd <= Math.max(0.01, positionSizeUsd * 0.005)) {
+      return json({
+        error: `${kind === "stop-loss" ? "Stop-loss" : "Take-profit"} coverage is already sufficient`,
+        failClosed: true,
+        coveragePercent,
+        coveredUsd,
+        uncoveredUsd,
+      }, 409);
+    }
+
     const [plan, fee] = await Promise.all([
-      Promise.resolve(buildUnsignedUpDownProtectionPlan(position, account as Address, kind, triggerPrice, acceptablePriceSlippageBps)),
+      Promise.resolve(buildUnsignedUpDownProtectionPlan(position, account as Address, kind, triggerPrice, acceptablePriceSlippageBps, uncoveredUsd)),
       estimateUpDownDecreaseExecutionFee(),
     ]);
     const transaction = encodeUnsignedUpDownProtectionMulticall(plan, fee.bufferedFeeWei);
@@ -55,6 +83,13 @@ export async function POST(request: NextRequest) {
       chainId: 42220,
       account,
       position,
+      existingProtection: {
+        kind,
+        activeOrderCount: activeExisting.length,
+        coveredUsd,
+        uncoveredUsd,
+        coveragePercent,
+      },
       protection: plan,
       liveExecutionFee: fee,
       unsignedTransaction: transaction,
