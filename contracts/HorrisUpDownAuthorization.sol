@@ -47,11 +47,10 @@ contract HorrisUpDownAuthorization {
     );
     bytes32 private constant NAME_HASH = keccak256("Horris UpDown Authorization");
     bytes32 private constant VERSION_HASH = keccak256("1");
-    // secp256k1n / 2, used to reject malleable high-s signatures.
     uint256 private constant SECP256K1N_HALF =
         0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
 
-    address public immutable authorizer;
+    address public authorizer;
     IHorrisUpDownCalldataGuard public immutable guard;
     IHorrisPerpPolicyAuthorization public immutable policy;
     mapping(address => bytes32) public marketIds;
@@ -61,6 +60,8 @@ contract HorrisUpDownAuthorization {
     bool public paused;
 
     event MarketIdUpdated(address indexed market, bytes32 indexed marketId);
+    event AuthorizerUpdated(address indexed previousAuthorizer, address indexed newAuthorizer);
+    event NonceInvalidated(uint256 indexed nonce);
     event AuthorizationConsumed(
         bytes32 indexed calldataHash,
         uint256 indexed nonce,
@@ -101,6 +102,20 @@ contract HorrisUpDownAuthorization {
         emit PauseUpdated(value);
     }
 
+    function setAuthorizer(address nextAuthorizer) external onlyOwner {
+        require(nextAuthorizer != address(0), "ZERO_AUTHORIZER");
+        address previous = authorizer;
+        require(nextAuthorizer != previous, "SAME_AUTHORIZER");
+        authorizer = nextAuthorizer;
+        emit AuthorizerUpdated(previous, nextAuthorizer);
+    }
+
+    function invalidateNonce(uint256 nonce) external onlyOwner {
+        require(!usedNonces[nonce], "NONCE_USED");
+        usedNonces[nonce] = true;
+        emit NonceInvalidated(nonce);
+    }
+
     function setMarketId(address market, bytes32 marketId) external onlyOwner {
         require(market != address(0) && marketId != bytes32(0), "BAD_MARKET_ID");
         marketIds[market] = marketId;
@@ -131,8 +146,6 @@ contract HorrisUpDownAuthorization {
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator(), structHash));
     }
 
-    /// @notice Validates exact transaction calldata + signed risk context, then permanently consumes the nonce.
-    /// @dev This function still does not submit the inspected transaction.
     function consumeIncreaseAuthorization(
         address target,
         uint256 msgValue,
@@ -158,9 +171,8 @@ contract HorrisUpDownAuthorization {
         bytes32 marketId = marketIds[inspection.market];
         require(marketId != bytes32(0), "MARKET_ID_UNSET");
 
-        // Convert values derived from actual UpDown calldata to HorrisPerpPolicy's 18-decimal USD domain.
-        uint256 marginUsdE18 = inspection.collateralUsdt * 1e12; // USDT 6d -> USD 18d
-        uint256 notionalUsdE18 = inspection.notionalUsdE30 / 1e12; // USD 30d -> USD 18d
+        uint256 marginUsdE18 = inspection.collateralUsdt * 1e12;
+        uint256 notionalUsdE18 = inspection.notionalUsdE30 / 1e12;
         require(notionalUsdE18 * 1e12 == inspection.notionalUsdE30, "NOTIONAL_PRECISION");
 
         IHorrisPerpPolicyAuthorization.Proposal memory proposal = IHorrisPerpPolicyAuthorization.Proposal({
@@ -174,7 +186,6 @@ contract HorrisUpDownAuthorization {
 
         (accountRiskBps, marginUtilizationBps) = policy.validate(proposal);
 
-        // Consume only after all calldata inspection and policy checks succeed.
         usedNonces[auth.nonce] = true;
         emit AuthorizationConsumed(
             auth.calldataHash,
