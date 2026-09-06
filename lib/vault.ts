@@ -9,7 +9,11 @@ function requireVault() {
 
 export async function getVaultSnapshot() {
   const vault = requireVault();
-  const [usdc, usdm, paused, executionCap, dailyLimit, spentToday, slippage] = await Promise.all([
+  const [owner, agent, accountedUsdc, accountedUsdm, rawUsdc, rawUsdm, paused, executionCap, dailyLimit, spentToday, slippage] = await Promise.all([
+    publicClient.readContract({ address: vault, abi: horrisVaultAbi, functionName: "owner" }),
+    publicClient.readContract({ address: vault, abi: horrisVaultAbi, functionName: "agent" }),
+    publicClient.readContract({ address: vault, abi: horrisVaultAbi, functionName: "depositedByAsset", args: [TOKENS.USDC.address] }),
+    publicClient.readContract({ address: vault, abi: horrisVaultAbi, functionName: "depositedByAsset", args: [TOKENS.USDm.address] }),
     publicClient.readContract({ address: vault, abi: horrisVaultAbi, functionName: "vaultBalance", args: [TOKENS.USDC.address] }),
     publicClient.readContract({ address: vault, abi: horrisVaultAbi, functionName: "vaultBalance", args: [TOKENS.USDm.address] }),
     publicClient.readContract({ address: vault, abi: horrisVaultAbi, functionName: "paused" }),
@@ -20,8 +24,13 @@ export async function getVaultSnapshot() {
   ]);
 
   return {
-    usdc: formatUnits(usdc, TOKENS.USDC.decimals),
-    usdm: formatUnits(usdm, TOKENS.USDm.decimals),
+    owner,
+    agent,
+    usdc: formatUnits(accountedUsdc, TOKENS.USDC.decimals),
+    usdm: formatUnits(accountedUsdm, TOKENS.USDm.decimals),
+    rawUsdc: formatUnits(rawUsdc, TOKENS.USDC.decimals),
+    rawUsdm: formatUnits(rawUsdm, TOKENS.USDm.decimals),
+    accountingHealthy: rawUsdc >= accountedUsdc && rawUsdm >= accountedUsdm,
     paused,
     executionCap: formatUnits(executionCap, TOKENS.USDC.decimals),
     dailyLimit: formatUnits(dailyLimit, TOKENS.USDC.decimals),
