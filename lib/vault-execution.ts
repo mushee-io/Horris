@@ -21,7 +21,6 @@ export async function executeVaultMentoPlan(wallet: WalletClient, account: Addre
   const policy = riskPolicy[plan.risk];
   if (Number(plan.amount) > policy.maxAllocation) throw new Error(`${plan.risk} execution cap exceeded`);
 
-  const slippageBps = Math.round(policy.slippage * 100);
   const now = Math.floor(Date.now() / 1000);
   const deadline = plan.deadline ?? now + 5 * 60;
   if (deadline < now || deadline > now + 30 * 60) throw new Error("Execution deadline must be within 30 minutes");
@@ -31,7 +30,7 @@ export async function executeVaultMentoPlan(wallet: WalletClient, account: Addre
     address: HORRIS_VAULT,
     abi: horrisVaultAbi,
     functionName: "execute",
-    args: [HORRIS_MENTO_ADAPTER, TOKENS.USDC.address, amountIn, plan.amountOutMin, slippageBps, plan.routeData, BigInt(deadline)],
+    args: [HORRIS_MENTO_ADAPTER, TOKENS.USDC.address, amountIn, plan.amountOutMin, plan.routeData, BigInt(deadline)],
   });
 
   const hash = await wallet.writeContract(request);
