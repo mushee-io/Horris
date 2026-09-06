@@ -7,12 +7,14 @@ const policyAddress = process.env.HORRIS_PERP_POLICY;
 const guardAddress = process.env.HORRIS_UPDOWN_GUARD;
 const authorizationAddress = process.env.HORRIS_UPDOWN_AUTHORIZATION;
 const expectedAuthorizer = process.env.HORRIS_PERP_AUTHORIZER;
+const expectedOwner = process.env.HORRIS_PERP_OWNER;
 
 for (const [name, value] of Object.entries({
   HORRIS_PERP_POLICY: policyAddress,
   HORRIS_UPDOWN_GUARD: guardAddress,
   HORRIS_UPDOWN_AUTHORIZATION: authorizationAddress,
   HORRIS_PERP_AUTHORIZER: expectedAuthorizer,
+  HORRIS_PERP_OWNER: expectedOwner,
 })) {
   if (!value) throw new Error(`Missing ${name}`);
 }
@@ -33,13 +35,19 @@ const markets = [
   ["GBPm", "0xc439330b3D59Be316936Ff62d1d22b377656Fc20"],
 ];
 
+const ownershipAbi = [
+  { type: "function", name: "owner", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "pendingOwner", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+];
 const policyAbi = [
+  ...ownershipAbi,
   { type: "function", name: "agent", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "paused", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
   { type: "function", name: "allowedMarkets", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bool" }] },
   { type: "function", name: "limits", stateMutability: "view", inputs: [], outputs: [{ type: "uint32" }, { type: "uint16" }, { type: "uint16" }, { type: "uint256" }] },
 ];
 const guardAbi = [
+  ...ownershipAbi,
   { type: "function", name: "exchangeRouter", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "orderVault", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "usdt", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
@@ -49,6 +57,7 @@ const guardAbi = [
   { type: "function", name: "allowedMarkets", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "bool" }] },
 ];
 const authAbi = [
+  ...ownershipAbi,
   { type: "function", name: "authorizer", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "guard", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "policy", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
@@ -59,6 +68,14 @@ const authAbi = [
 const client = createPublicClient({ chain: celo, transport: http(RPC, { timeout: 15_000 }) });
 const norm = (value) => getAddress(value).toLowerCase();
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
+const zero = "0x0000000000000000000000000000000000000000";
+
+function ownershipState(label, owner, pendingOwner) {
+  const intended = norm(expectedOwner);
+  if (norm(owner) === intended && norm(pendingOwner) === norm(zero)) return `${label}: accepted`;
+  if (norm(pendingOwner) === intended) return `${label}: pending acceptance`;
+  throw new Error(`${label} ownership is neither accepted by nor pending to HORRIS_PERP_OWNER`);
+}
 
 async function main() {
   const chainId = await client.getChainId();
@@ -68,21 +85,37 @@ async function main() {
   const codes = await Promise.all(deploymentAddresses.map((address) => client.getCode({ address })));
   codes.forEach((code, index) => assert(code && code !== "0x", `No bytecode at ${deploymentAddresses[index]}`));
 
-  const [agent, policyPaused, limits, exchangeRouter, orderVault, usdt, guardPaused, maxLeverage, maxNotional, authorizer, authGuard, authPolicy, authPaused] = await Promise.all([
+  const [
+    policyOwner, policyPendingOwner, agent, policyPaused, limits,
+    guardOwner, guardPendingOwner, exchangeRouter, orderVault, usdt, guardPaused, maxLeverage, maxNotional,
+    authOwner, authPendingOwner, authorizer, authGuard, authPolicy, authPaused,
+  ] = await Promise.all([
+    client.readContract({ address: getAddress(policyAddress), abi: policyAbi, functionName: "owner" }),
+    client.readContract({ address: getAddress(policyAddress), abi: policyAbi, functionName: "pendingOwner" }),
     client.readContract({ address: getAddress(policyAddress), abi: policyAbi, functionName: "agent" }),
     client.readContract({ address: getAddress(policyAddress), abi: policyAbi, functionName: "paused" }),
     client.readContract({ address: getAddress(policyAddress), abi: policyAbi, functionName: "limits" }),
+    client.readContract({ address: getAddress(guardAddress), abi: guardAbi, functionName: "owner" }),
+    client.readContract({ address: getAddress(guardAddress), abi: guardAbi, functionName: "pendingOwner" }),
     client.readContract({ address: getAddress(guardAddress), abi: guardAbi, functionName: "exchangeRouter" }),
     client.readContract({ address: getAddress(guardAddress), abi: guardAbi, functionName: "orderVault" }),
     client.readContract({ address: getAddress(guardAddress), abi: guardAbi, functionName: "usdt" }),
     client.readContract({ address: getAddress(guardAddress), abi: guardAbi, functionName: "paused" }),
     client.readContract({ address: getAddress(guardAddress), abi: guardAbi, functionName: "maxLeverageBps" }),
     client.readContract({ address: getAddress(guardAddress), abi: guardAbi, functionName: "maxNotionalUsdE30" }),
+    client.readContract({ address: getAddress(authorizationAddress), abi: authAbi, functionName: "owner" }),
+    client.readContract({ address: getAddress(authorizationAddress), abi: authAbi, functionName: "pendingOwner" }),
     client.readContract({ address: getAddress(authorizationAddress), abi: authAbi, functionName: "authorizer" }),
     client.readContract({ address: getAddress(authorizationAddress), abi: authAbi, functionName: "guard" }),
     client.readContract({ address: getAddress(authorizationAddress), abi: authAbi, functionName: "policy" }),
     client.readContract({ address: getAddress(authorizationAddress), abi: authAbi, functionName: "paused" }),
   ]);
+
+  const ownership = [
+    ownershipState("Policy", policyOwner, policyPendingOwner),
+    ownershipState("Guard", guardOwner, guardPendingOwner),
+    ownershipState("Authorization", authOwner, authPendingOwner),
+  ];
 
   assert(norm(agent) === norm(authorizationAddress), "Policy agent is not the Horris authorization contract");
   assert(!policyPaused && !guardPaused && !authPaused, "One or more Horris perp contracts are paused");
@@ -109,10 +142,12 @@ async function main() {
   }
 
   console.log("Horris perp guard verification passed");
+  ownership.forEach((state) => console.log(state));
   console.log(`Policy: ${getAddress(policyAddress)}`);
   console.log(`Guard: ${getAddress(guardAddress)}`);
   console.log(`Authorization: ${getAddress(authorizationAddress)}`);
   console.log(`Authorizer: ${getAddress(expectedAuthorizer)}`);
+  console.log(`Intended owner: ${getAddress(expectedOwner)}`);
   console.log("UpDown mainnet submission remains disabled by the current app.");
 }
 
