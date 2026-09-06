@@ -1,7 +1,7 @@
 import "server-only";
 import { createPublicClient, formatEther, formatUnits, http, type Address } from "viem";
 import { celo } from "viem/chains";
-import { UPDOWN_CELO } from "./updown";
+import { UPDOWN_CELO, getUpDownMarket } from "./updown";
 import { estimateUpDownIncreaseExecutionFee, getUpDownOraclePrice } from "./updown-live";
 
 const RPC = process.env.CELO_MAINNET_RPC_URL || "https://forno.celo.org";
@@ -13,26 +13,27 @@ const erc20Abi = [
 
 export type UpDownReadinessCheck = { code: string; passed: boolean; detail: string };
 export type UpDownEntryReadiness = {
-  chainId: 42220;
-  account: Address;
-  marketToken: Address;
-  requiredCollateral: bigint;
-  usdtBalance: bigint;
-  routerAllowance: bigint;
-  nativeCeloBalance: bigint;
-  requiredExecutionFee: bigint;
-  requiredExecutionFeeCelo: string;
-  approvalRequired: boolean;
-  readyForSimulation: boolean;
-  readyForSubmission: false;
-  checks: UpDownReadinessCheck[];
+  chainId: 42220; account: Address; marketToken: Address; requiredCollateral: bigint; usdtBalance: bigint; routerAllowance: bigint;
+  nativeCeloBalance: bigint; requiredExecutionFee: bigint; requiredExecutionFeeCelo: string; approvalRequired: boolean;
+  readyForSimulation: boolean; readyForSubmission: false; checks: UpDownReadinessCheck[];
   oracle: Awaited<ReturnType<typeof getUpDownOraclePrice>>;
 };
 
 export async function getUpDownEntryReadiness(account: Address, marketToken: Address, requiredCollateral: bigint): Promise<UpDownEntryReadiness> {
   if (requiredCollateral <= 0n) throw new Error("Required collateral must be positive");
+  const market = getUpDownMarket(marketToken);
+  if (!market) throw new Error("Market is not in the pinned UpDown registry");
   const client = createPublicClient({ chain: celo, transport: http(RPC, { timeout: 12_000 }) });
-  const requiredCode = [UPDOWN_CELO.exchangeRouter, UPDOWN_CELO.router, UPDOWN_CELO.orderVault, UPDOWN_CELO.dataStore] as const;
+  const requiredCode = [
+    UPDOWN_CELO.exchangeRouter,
+    UPDOWN_CELO.router,
+    UPDOWN_CELO.orderVault,
+    UPDOWN_CELO.dataStore,
+    UPDOWN_CELO.chainlinkPriceFeedProvider,
+    USDT,
+    market.marketToken,
+    market.indexToken,
+  ] as const;
 
   const results = await Promise.all([
     client.getChainId(),
@@ -55,7 +56,13 @@ export async function getUpDownEntryReadiness(account: Address, marketToken: Add
   const codeHealthy = codes.every((code) => Boolean(code && code !== "0x"));
   const approvalRequired = routerAllowance < requiredCollateral;
   const checks: UpDownReadinessCheck[] = [
-    { code: "VENUE_BYTECODE", passed: codeHealthy, detail: codeHealthy ? "Pinned ExchangeRouter, Router, OrderVault and DataStore have bytecode." : "One or more pinned UpDown contracts have no bytecode." },
+    {
+      code: "VENUE_BYTECODE",
+      passed: codeHealthy,
+      detail: codeHealthy
+        ? "Core UpDown contracts, oracle provider, USDT, selected market token and index token all have bytecode."
+        : "One or more exact UpDown execution dependencies have no bytecode.",
+    },
     { code: "USDT_BALANCE", passed: usdtBalance >= requiredCollateral, detail: `${formatUnits(usdtBalance, 6)} USDT available; ${formatUnits(requiredCollateral, 6)} required.` },
     { code: "ROUTER_ALLOWANCE", passed: !approvalRequired, detail: approvalRequired ? `${formatUnits(routerAllowance, 6)} USDT approved to Router; ${formatUnits(requiredCollateral, 6)} required.` : "Router allowance covers the exact requested collateral." },
     { code: "EXECUTION_FEE", passed: nativeCeloBalance >= fee.bufferedFeeWei, detail: `${formatEther(nativeCeloBalance)} CELO available; ${fee.bufferedFeeCelo} CELO buffered fee required.` },
@@ -65,19 +72,8 @@ export async function getUpDownEntryReadiness(account: Address, marketToken: Add
   const hardChecks = checks.filter((check) => check.code !== "ROUTER_ALLOWANCE");
   const readyForSimulation = hardChecks.every((check) => check.passed);
   return {
-    chainId: 42220,
-    account,
-    marketToken,
-    requiredCollateral,
-    usdtBalance,
-    routerAllowance,
-    nativeCeloBalance,
-    requiredExecutionFee: fee.bufferedFeeWei,
-    requiredExecutionFeeCelo: fee.bufferedFeeCelo,
-    approvalRequired,
-    readyForSimulation,
-    readyForSubmission: false,
-    checks,
-    oracle,
+    chainId: 42220, account, marketToken, requiredCollateral, usdtBalance, routerAllowance, nativeCeloBalance,
+    requiredExecutionFee: fee.bufferedFeeWei, requiredExecutionFeeCelo: fee.bufferedFeeCelo,
+    approvalRequired, readyForSimulation, readyForSubmission: false, checks, oracle,
   };
 }
