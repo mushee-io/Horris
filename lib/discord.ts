@@ -2,14 +2,20 @@ import type { HorrisRisk } from "./mento";
 import { simulatePolicy } from "./policy";
 import { proposeStableStrategy } from "./strategy";
 
+export const HORRIS_RISKS = ["Conservative", "Balanced", "Aggressive"] as const satisfies readonly HorrisRisk[];
+
 export type DiscordCommand =
   | { name: "strategy"; amount: number; balance: number; risk: HorrisRisk }
   | { name: "risk"; amount: number; balance: number; risk: HorrisRisk }
   | { name: "help" };
 
+export function isHorrisRisk(value: unknown): value is HorrisRisk {
+  return typeof value === "string" && (HORRIS_RISKS as readonly string[]).includes(value);
+}
+
 export function handleDiscordCommand(command: DiscordCommand) {
   if (command.name === "help") {
-    return { content: "Horris commands: /strategy, /risk, /portfolio. Execution always remains subject to Horris policy." };
+    return { content: "Horris commands: /strategy and /risk. Execution remains subject to Horris policy and explicit permissions." };
   }
 
   const proposal = proposeStableStrategy(command.amount, command.risk);
