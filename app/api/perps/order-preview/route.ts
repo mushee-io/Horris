@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Address } from "viem";
 import { buildUnsignedUpDownIncreaseOrderPlan } from "../../../../lib/updown-order";
+import { encodeUnsignedUpDownMulticall } from "../../../../lib/updown-calldata";
 import { estimateUpDownIncreaseExecutionFee } from "../../../../lib/updown-live";
 import type { PerpIntent, PerpRiskProfile, PerpSide } from "../../../../lib/perps";
 import { getUpDownMarket } from "../../../../lib/updown";
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
       Promise.resolve(buildUnsignedUpDownIncreaseOrderPlan(intent, receiver, acceptablePriceSlippageBps)),
       estimateUpDownIncreaseExecutionFee(),
     ]);
+    const transaction = encodeUnsignedUpDownMulticall(plan, fee.bufferedFeeWei);
 
     return json(serialize({
       ...plan,
@@ -65,6 +67,7 @@ export async function POST(request: NextRequest) {
           executionFee: fee.bufferedFeeWei,
         },
       },
+      unsignedTransaction: transaction,
       requiresLiveExecutionFee: false,
       feeResolvedAt: new Date().toISOString(),
       executionEnabled: false,
