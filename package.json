@@ -8,7 +8,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "discord:register": "node scripts/register-discord.mjs",
-    "verify:deployment": "node scripts/verify-deployment.mjs"
+    "verify:deployment": "node scripts/verify-deployment.mjs",
+    "verify:updown": "node scripts/verify-updown.mjs"
   },
   "dependencies": {
     "@mento-protocol/mento-sdk": "3.4.0",
