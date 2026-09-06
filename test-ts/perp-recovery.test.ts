@@ -1,0 +1,10 @@
+import { describe, expect, it } from "vitest";
+import { planProtectionFailureRecovery } from "../lib/perp-recovery";
+
+describe("entry succeeds but protection fails", () => {
+  it("freezes new risk and retries a clean under-covered position", () => { const r = planProtectionFailureRecovery({ entryConfirmed: true, stopCoveragePercent: 0, protectionOrderFrozen: false, oracleFresh: true, rpcHealthy: true, retryCount: 0 }); expect(r.freezeNewRisk).toBe(true); expect(r.retryProtection).toBe(true); });
+  it("does not stack protection over a frozen stop", () => { const r = planProtectionFailureRecovery({ entryConfirmed: true, stopCoveragePercent: 0, protectionOrderFrozen: true, oracleFresh: true, rpcHealthy: true, retryCount: 0 }); expect(r.retryProtection).toBe(false); expect(r.humanReviewRequired).toBe(true); expect(r.severity).toBe("critical"); });
+  it("fails closed on stale oracle", () => { const r = planProtectionFailureRecovery({ entryConfirmed: true, stopCoveragePercent: 0, protectionOrderFrozen: false, oracleFresh: false, rpcHealthy: true, retryCount: 0 }); expect(r.recommendReduceOrClose).toBe(true); expect(r.retryProtection).toBe(false); });
+  it("fails closed on RPC outage", () => { const r = planProtectionFailureRecovery({ entryConfirmed: true, stopCoveragePercent: 50, protectionOrderFrozen: false, oracleFresh: true, rpcHealthy: false, retryCount: 0 }); expect(r.severity).toBe("critical"); expect(r.freezeNewRisk).toBe(true); });
+  it("escalates after bounded retries", () => { const r = planProtectionFailureRecovery({ entryConfirmed: true, stopCoveragePercent: 50, protectionOrderFrozen: false, oracleFresh: true, rpcHealthy: true, retryCount: 2 }); expect(r.retryProtection).toBe(false); expect(r.recommendReduceOrClose).toBe(true); expect(r.humanReviewRequired).toBe(true); });
+});
