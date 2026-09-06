@@ -24,7 +24,7 @@ export const horrisVaultAbi = [
   { type: "function", name: "dailyExecutionLimit", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { type: "function", name: "spentToday", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { type: "function", name: "maxSlippageBps", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint16" }] },
-  { type: "event", name: "ExecutionCompleted", inputs: [{ name: "adapter", type: "address", indexed: true }, { name: "assetIn", type: "address", indexed: true }, { name: "amountIn", type: "uint256", indexed: false }, { name: "amountOut", type: "uint256", indexed: false }, { name: "slippageBps", type: "uint16", indexed: false }], anonymous: false },
+  { type: "event", name: "ExecutionCompleted", inputs: [{ name: "adapter", type: "address", indexed: true }, { name: "assetIn", type: "address", indexed: true }, { name: "assetOut", type: "address", indexed: true }, { name: "amountIn", type: "uint256", indexed: false }, { name: "amountOut", type: "uint256", indexed: false }, { name: "slippageBps", type: "uint16", indexed: false }], anonymous: false },
 ] as const;
 
 export const erc20ApprovalAbi = [
