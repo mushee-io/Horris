@@ -1,40 +1,42 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title HorisPolicyVault
-/// @notice Minimal policy layer for the Horis testnet MVP.
-/// @dev This contract is intentionally small and unaudited. Do not use with production funds.
-contract HorisPolicyVault {
+interface IERC20 {
+    function balanceOf(address account) external view returns (uint256);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+}
+
+/// @title HorrisPolicyVault
+/// @notice User-controlled ERC20 vault for Horris testnet execution.
+/// @dev Unaudited testnet code. Do not use with production funds.
+contract HorrisPolicyVault {
     address public immutable owner;
     address public agent;
     bool public paused;
-    uint16 public maxDrawdownBps;
 
     mapping(address => bool) public allowedAssets;
-    mapping(address => bool) public allowedTargets;
+    mapping(address => uint256) public depositedByAsset;
 
+    event Deposited(address indexed asset, uint256 amount);
+    event Withdrawn(address indexed asset, uint256 amount, address indexed recipient);
     event AgentUpdated(address indexed agent);
     event PauseUpdated(bool paused);
-    event RiskUpdated(uint16 maxDrawdownBps);
     event AssetPolicyUpdated(address indexed asset, bool allowed);
-    event TargetPolicyUpdated(address indexed target, bool allowed);
-    event ExecutionAuthorized(address indexed target, address indexed asset, uint256 amount, bytes data);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "NOT_OWNER");
         _;
     }
 
-    modifier onlyAgent() {
-        require(msg.sender == agent, "NOT_AGENT");
+    modifier whenNotPaused() {
+        require(!paused, "PAUSED");
         _;
     }
 
-    constructor(address initialAgent, uint16 initialMaxDrawdownBps) {
-        require(initialMaxDrawdownBps <= 10_000, "BAD_BPS");
+    constructor(address initialAgent) {
         owner = msg.sender;
         agent = initialAgent;
-        maxDrawdownBps = initialMaxDrawdownBps;
     }
 
     function setAgent(address newAgent) external onlyOwner {
@@ -42,36 +44,42 @@ contract HorisPolicyVault {
         emit AgentUpdated(newAgent);
     }
 
+    function revokeAgent() external onlyOwner {
+        agent = address(0);
+        emit AgentUpdated(address(0));
+    }
+
     function setPaused(bool value) external onlyOwner {
         paused = value;
         emit PauseUpdated(value);
     }
 
-    function setMaxDrawdownBps(uint16 value) external onlyOwner {
-        require(value <= 10_000, "BAD_BPS");
-        maxDrawdownBps = value;
-        emit RiskUpdated(value);
-    }
-
     function setAllowedAsset(address asset, bool allowed) external onlyOwner {
+        require(asset != address(0), "ZERO_ASSET");
         allowedAssets[asset] = allowed;
         emit AssetPolicyUpdated(asset, allowed);
     }
 
-    function setAllowedTarget(address target, bool allowed) external onlyOwner {
-        allowedTargets[target] = allowed;
-        emit TargetPolicyUpdated(target, allowed);
+    function deposit(address asset, uint256 amount) external onlyOwner whenNotPaused {
+        require(allowedAssets[asset], "ASSET_BLOCKED");
+        require(amount > 0, "ZERO_AMOUNT");
+        require(IERC20(asset).transferFrom(msg.sender, address(this), amount), "TRANSFER_FROM_FAILED");
+
+        depositedByAsset[asset] += amount;
+        emit Deposited(asset, amount);
     }
 
-    function authorizeExecution(address target, address asset, uint256 amount, bytes calldata data)
-        external
-        onlyAgent
-    {
-        require(!paused, "PAUSED");
-        require(allowedAssets[asset], "ASSET_BLOCKED");
-        require(allowedTargets[target], "TARGET_BLOCKED");
+    function withdraw(address asset, uint256 amount, address recipient) external onlyOwner {
+        require(recipient != address(0), "ZERO_RECIPIENT");
         require(amount > 0, "ZERO_AMOUNT");
+        require(amount <= depositedByAsset[asset], "INSUFFICIENT_DEPOSIT");
 
-        emit ExecutionAuthorized(target, asset, amount, data);
+        depositedByAsset[asset] -= amount;
+        require(IERC20(asset).transfer(recipient, amount), "TRANSFER_FAILED");
+        emit Withdrawn(asset, amount, recipient);
+    }
+
+    function vaultBalance(address asset) external view returns (uint256) {
+        return IERC20(asset).balanceOf(address(this));
     }
 }
