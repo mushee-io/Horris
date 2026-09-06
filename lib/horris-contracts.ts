@@ -4,9 +4,14 @@ function optionalAddress(value?: string): Address | undefined {
   return value?.startsWith("0x") && value.length === 42 ? value as Address : undefined;
 }
 
+function optionalBlock(value?: string): bigint | undefined {
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  return BigInt(value);
+}
+
 export const HORRIS_VAULT = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_VAULT);
 export const HORRIS_MENTO_ADAPTER = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_MENTO_ADAPTER);
-export const HORRIS_DEPLOYMENT_BLOCK = process.env.NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK ? BigInt(process.env.NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK) : undefined;
+export const HORRIS_DEPLOYMENT_BLOCK = optionalBlock(process.env.NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK);
 
 export const horrisVaultAbi = [
   { type: "function", name: "deposit", stateMutability: "nonpayable", inputs: [{ name: "asset", type: "address" }, { name: "amount", type: "uint256" }], outputs: [] },
@@ -19,6 +24,7 @@ export const horrisVaultAbi = [
   { type: "function", name: "dailyExecutionLimit", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { type: "function", name: "spentToday", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { type: "function", name: "maxSlippageBps", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint16" }] },
+  { type: "event", name: "ExecutionCompleted", inputs: [{ name: "adapter", type: "address", indexed: true }, { name: "assetIn", type: "address", indexed: true }, { name: "amountIn", type: "uint256", indexed: false }, { name: "amountOut", type: "uint256", indexed: false }, { name: "slippageBps", type: "uint16", indexed: false }], anonymous: false },
 ] as const;
 
 export const erc20ApprovalAbi = [
