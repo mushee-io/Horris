@@ -16,7 +16,10 @@ contract MockAdapter is IHorrisAdapter {
     IERC20 public immutable tokenIn;
     MockToken public immutable outputToken;
     address public immutable tokenOut;
+    uint256 public quoteBps = 10_000;
     constructor(IERC20 tokenIn_, MockToken tokenOut_) { tokenIn = tokenIn_; outputToken = tokenOut_; tokenOut = address(tokenOut_); }
+    function setQuoteBps(uint256 value) external { quoteBps = value; }
+    function quote(uint256 amountIn, bytes calldata) external view returns (uint256) { return amountIn * quoteBps / 10_000; }
     function executeSwap(uint256 amountIn, uint256 amountOutMin, bytes calldata, uint256) external returns (uint256 amountOut) {
         require(tokenIn.transferFrom(msg.sender, address(this), amountIn));
         amountOut = amountIn;
@@ -27,7 +30,7 @@ contract MockAdapter is IHorrisAdapter {
 
 contract AgentCaller {
     function execute(HorrisPolicyVault vault, address adapter, address asset, uint256 amount) external returns (bool ok) {
-        (ok,) = address(vault).call(abi.encodeCall(vault.execute, (adapter, asset, amount, amount - 1, 25, bytes(""), block.timestamp + 5 minutes)));
+        (ok,) = address(vault).call(abi.encodeCall(vault.execute, (adapter, asset, amount, amount - 1, bytes(""), block.timestamp + 5 minutes)));
     }
 }
 
@@ -38,15 +41,11 @@ contract HorrisPolicyVaultTest {
     HorrisPolicyVault vault;
 
     constructor() {
-        token = new MockToken();
-        outputToken = new MockToken();
+        token = new MockToken(); outputToken = new MockToken();
         vault = new HorrisPolicyVault(address(this), 100e6, 250e6, 50);
         adapter = new MockAdapter(token, outputToken);
-        vault.setAllowedAsset(address(token), true);
-        vault.setAllowedAsset(address(outputToken), true);
-        vault.setAllowedAdapter(address(adapter), true);
-        token.mint(address(this), 500e6);
-        token.approve(address(vault), type(uint256).max);
+        vault.setAllowedAsset(address(token), true); vault.setAllowedAsset(address(outputToken), true); vault.setAllowedAdapter(address(adapter), true);
+        token.mint(address(this), 500e6); token.approve(address(vault), type(uint256).max);
     }
 
     function testDepositAndWithdraw() public {
@@ -58,7 +57,7 @@ contract HorrisPolicyVaultTest {
 
     function testApprovedExecutionAccountsOutput() public {
         vault.deposit(address(token), 200e6);
-        vault.execute(address(adapter), address(token), 75e6, 70e6, 25, "", block.timestamp + 5 minutes);
+        vault.execute(address(adapter), address(token), 75e6, 74_625_000, "", block.timestamp + 5 minutes);
         require(vault.spentToday() == 75e6, "daily spend");
         require(vault.depositedByAsset(address(token)) == 125e6, "input accounting");
         require(vault.depositedByAsset(address(outputToken)) == 75e6, "output accounting");
@@ -67,7 +66,7 @@ contract HorrisPolicyVaultTest {
 
     function testExecutionOutputCanBeWithdrawn() public {
         vault.deposit(address(token), 100e6);
-        vault.execute(address(adapter), address(token), 50e6, 49e6, 25, "", block.timestamp + 5 minutes);
+        vault.execute(address(adapter), address(token), 50e6, 49_750_000, "", block.timestamp + 5 minutes);
         uint256 beforeBalance = outputToken.balanceOf(address(this));
         vault.withdraw(address(outputToken), 50e6, address(this));
         require(outputToken.balanceOf(address(this)) == beforeBalance + 50e6, "output withdrawal");
@@ -76,59 +75,60 @@ contract HorrisPolicyVaultTest {
 
     function testExecutionAboveCapReverts() public {
         vault.deposit(address(token), 200e6);
-        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 101e6, 90e6, 25, bytes(""), block.timestamp + 5 minutes)));
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 101e6, 100_495_000, bytes(""), block.timestamp + 5 minutes)));
         require(!ok, "execution cap should revert");
     }
 
     function testDailyCapReverts() public {
         vault.deposit(address(token), 300e6);
-        vault.execute(address(adapter), address(token), 100e6, 99e6, 25, "", block.timestamp + 5 minutes);
-        vault.execute(address(adapter), address(token), 100e6, 99e6, 25, "", block.timestamp + 5 minutes);
-        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 51e6, 50e6, 25, bytes(""), block.timestamp + 5 minutes)));
+        vault.execute(address(adapter), address(token), 100e6, 99_500_000, "", block.timestamp + 5 minutes);
+        vault.execute(address(adapter), address(token), 100e6, 99_500_000, "", block.timestamp + 5 minutes);
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 51e6, 50_745_000, bytes(""), block.timestamp + 5 minutes)));
         require(!ok, "daily cap should revert");
     }
 
-    function testSlippageAbovePolicyReverts() public {
+    function testWeakMinimumOutputRevertsFromOnchainQuote() public {
         vault.deposit(address(token), 100e6);
-        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 40e6, 51, bytes(""), block.timestamp + 5 minutes)));
-        require(!ok, "slippage cap should revert");
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 49_000_000, bytes(""), block.timestamp + 5 minutes)));
+        require(!ok, "weak min output should violate slippage cap");
+    }
+
+    function testQuoteChangeIsEnforced() public {
+        vault.deposit(address(token), 100e6);
+        adapter.setQuoteBps(12_000);
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 50e6, bytes(""), block.timestamp + 5 minutes)));
+        require(!ok, "minimum should be measured against current adapter quote");
     }
 
     function testRejectsLongDeadline() public {
         vault.deposit(address(token), 100e6);
-        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 40e6, 25, bytes(""), block.timestamp + 31 minutes)));
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 49_750_000, bytes(""), block.timestamp + 31 minutes)));
         require(!ok, "long deadline should revert");
     }
 
     function testBlockedAdapterReverts() public {
         MockAdapter blocked = new MockAdapter(token, outputToken);
         vault.deposit(address(token), 100e6);
-        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(blocked), address(token), 50e6, 40e6, 25, bytes(""), block.timestamp + 5 minutes)));
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(blocked), address(token), 50e6, 49_750_000, bytes(""), block.timestamp + 5 minutes)));
         require(!ok, "blocked adapter should revert");
     }
 
     function testBlockedOutputAssetReverts() public {
-        vault.setAllowedAsset(address(outputToken), false);
-        vault.deposit(address(token), 100e6);
-        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 40e6, 25, bytes(""), block.timestamp + 5 minutes)));
+        vault.setAllowedAsset(address(outputToken), false); vault.deposit(address(token), 100e6);
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 49_750_000, bytes(""), block.timestamp + 5 minutes)));
         require(!ok, "blocked output should revert");
     }
 
     function testRevokedAgentCannotExecute() public {
-        AgentCaller caller = new AgentCaller();
-        vault.deposit(address(token), 100e6);
-        vault.setAgent(address(caller));
+        AgentCaller caller = new AgentCaller(); vault.deposit(address(token), 100e6); vault.setAgent(address(caller));
         require(caller.execute(vault, address(adapter), address(token), 10e6), "agent should execute");
-        vault.revokeAgent();
-        require(!caller.execute(vault, address(adapter), address(token), 10e6), "revoked agent should fail");
+        vault.revokeAgent(); require(!caller.execute(vault, address(adapter), address(token), 10e6), "revoked agent should fail");
     }
 
     function testPauseBlocksDepositAndExecution() public {
-        vault.deposit(address(token), 100e6);
-        vault.setPaused(true);
+        vault.deposit(address(token), 100e6); vault.setPaused(true);
         (bool depositOk,) = address(vault).call(abi.encodeCall(vault.deposit, (address(token), 10e6)));
-        (bool executeOk,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 10e6, 9e6, 25, bytes(""), block.timestamp + 5 minutes)));
-        require(!depositOk, "paused deposit should revert");
-        require(!executeOk, "paused execution should revert");
+        (bool executeOk,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 10e6, 9_950_000, bytes(""), block.timestamp + 5 minutes)));
+        require(!depositOk, "paused deposit should revert"); require(!executeOk, "paused execution should revert");
     }
 }
