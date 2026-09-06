@@ -1,12 +1,7 @@
 import { formatUnits, parseAbiItem, type Address, type Hash, type PublicClient } from "viem";
 import { TOKENS } from "./celo";
 
-export type PortfolioSnapshot = {
-  usdc: number;
-  usdm: number;
-  stableValue: number;
-};
-
+export type PortfolioSnapshot = { usdc: number; usdm: number; stableValue: number };
 export type ExecutionActivity = {
   txHash: Hash;
   blockNumber: bigint;
@@ -17,17 +12,8 @@ export type ExecutionActivity = {
   slippageBps: number;
 };
 
-const erc20BalanceAbi = [{
-  type: "function",
-  name: "balanceOf",
-  stateMutability: "view",
-  inputs: [{ name: "account", type: "address" }],
-  outputs: [{ name: "", type: "uint256" }],
-}] as const;
-
-const executionEvent = parseAbiItem(
-  "event ExecutionCompleted(address indexed adapter,address indexed assetIn,uint256 amountIn,uint256 amountOut,uint16 slippageBps)",
-);
+const erc20BalanceAbi = [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }] }] as const;
+const executionEvent = parseAbiItem("event ExecutionCompleted(address indexed adapter,address indexed assetIn,uint256 amountIn,uint256 amountOut,uint16 slippageBps)");
 
 export async function getPortfolio(client: PublicClient, account: Address): Promise<PortfolioSnapshot> {
   const [usdcRaw, usdmRaw] = await Promise.all([
@@ -50,4 +36,13 @@ export async function getVaultActivity(client: PublicClient, vault: Address, fro
     amountOut: log.args.amountOut!,
     slippageBps: Number(log.args.slippageBps!),
   })).reverse();
+}
+
+export function formatExecutionActivity(activity: ExecutionActivity) {
+  return {
+    ...activity,
+    amountInFormatted: formatUnits(activity.amountIn, TOKENS.USDC.decimals),
+    amountOutFormatted: formatUnits(activity.amountOut, TOKENS.USDm.decimals),
+    slippagePercent: activity.slippageBps / 100,
+  };
 }
