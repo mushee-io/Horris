@@ -27,7 +27,8 @@ function validPositive(value: number) { return Number.isFinite(value) && value >
 export function canPerpAgentProceed(request: PerpAgentRequest, permission: PerpAgentPermission, now = Date.now()) {
   const reasons: string[] = [];
   if (!permission.enabled) reasons.push("Perp agent permission is disabled");
-  if (!Number.isFinite(now) || !Number.isFinite(permission.expiresAt) || now >= permission.expiresAt) reasons.push("Perp agent permission has expired or has invalid timing");
+  if (!Number.isFinite(now) || !Number.isFinite(permission.expiresAt)) reasons.push("Perp agent permission timing is invalid");
+  else if (now >= permission.expiresAt) reasons.push("Perp agent permission has expired");
   if (!Array.isArray(permission.allowedMarkets) || permission.allowedMarkets.length === 0 || !permission.allowedMarkets.includes(request.market)) reasons.push("Market is outside delegated scope");
   if (!Array.isArray(permission.allowedSides) || !permission.allowedSides.includes(request.side)) reasons.push("Side is outside delegated scope");
   if (!Array.isArray(permission.allowedRiskProfiles) || !permission.allowedRiskProfiles.includes(request.risk)) reasons.push("Risk profile is outside delegated scope");
