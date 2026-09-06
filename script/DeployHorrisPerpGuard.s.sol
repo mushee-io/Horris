@@ -29,34 +29,23 @@ contract DeployHorrisPerpGuard {
     address constant AUDM_MARKET = 0x22476a639D1bBDDE1919A226347360b32A2385Fe;
     address constant GBPM_MARKET = 0xc439330b3D59Be316936Ff62d1d22b377656Fc20;
 
-    function run()
-        external
-        returns (
-            HorrisPerpPolicy policy,
-            HorrisUpDownCalldataGuard guard,
-            HorrisUpDownAuthorization authorization
-        )
-    {
+    function run() external returns (HorrisPerpPolicy policy, HorrisUpDownCalldataGuard guard, HorrisUpDownAuthorization authorization) {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address authorizer = vm.envAddress("HORRIS_PERP_AUTHORIZER");
+        address intendedOwner = vm.envAddress("HORRIS_PERP_OWNER");
         require(authorizer != address(0), "ZERO_AUTHORIZER");
+        require(intendedOwner != address(0), "ZERO_OWNER");
 
         vm.startBroadcast(deployerKey);
 
         HorrisPerpPolicy.Limits memory limits = HorrisPerpPolicy.Limits({
-            maxLeverageBps: 50_000, // Balanced default: 5x
-            maxAccountRiskBps: 200, // 2%
-            maxMarginUtilizationBps: 3_500, // 35%
+            maxLeverageBps: 50_000,
+            maxAccountRiskBps: 200,
+            maxMarginUtilizationBps: 3_500,
             maxNotionalUsdE18: 5_000e18
         });
         policy = new HorrisPerpPolicy(address(0), limits);
-        guard = new HorrisUpDownCalldataGuard(
-            UPDOWN_EXCHANGE_ROUTER,
-            UPDOWN_ORDER_VAULT,
-            UPDOWN_USDT,
-            50_000,
-            5_000e30
-        );
+        guard = new HorrisUpDownCalldataGuard(UPDOWN_EXCHANGE_ROUTER, UPDOWN_ORDER_VAULT, UPDOWN_USDT, 50_000, 5_000e30);
         authorization = new HorrisUpDownAuthorization(authorizer, address(guard), address(policy));
 
         _configureMarket(policy, guard, authorization, BTC_MARKET, "BTC");
@@ -68,19 +57,17 @@ contract DeployHorrisPerpGuard {
         _configureMarket(policy, guard, authorization, AUDM_MARKET, "AUDm");
         _configureMarket(policy, guard, authorization, GBPM_MARKET, "GBPm");
 
-        // The authorization contract is the only policy agent. It can validate exact inspected calldata but cannot execute it.
         policy.setAgent(address(authorization));
+
+        // Deliberately two-step. The intended owner must explicitly accept on each contract after deployment verification.
+        policy.proposeOwner(intendedOwner);
+        guard.proposeOwner(intendedOwner);
+        authorization.proposeOwner(intendedOwner);
 
         vm.stopBroadcast();
     }
 
-    function _configureMarket(
-        HorrisPerpPolicy policy,
-        HorrisUpDownCalldataGuard guard,
-        HorrisUpDownAuthorization authorization,
-        address market,
-        string memory symbol
-    ) internal {
+    function _configureMarket(HorrisPerpPolicy policy, HorrisUpDownCalldataGuard guard, HorrisUpDownAuthorization authorization, address market, string memory symbol) internal {
         bytes32 marketId = keccak256(bytes(symbol));
         policy.setMarket(marketId, true);
         guard.setMarket(market, true);
