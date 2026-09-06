@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Address } from "viem";
 import { buildUnsignedUpDownIncreaseOrderPlan } from "../../../../lib/updown-order";
+import { estimateUpDownIncreaseExecutionFee } from "../../../../lib/updown-live";
 import type { PerpIntent, PerpRiskProfile, PerpSide } from "../../../../lib/perps";
 import { getUpDownMarket } from "../../../../lib/updown";
 
@@ -49,9 +50,30 @@ export async function POST(request: NextRequest) {
       takeProfit,
     };
 
-    const plan = buildUnsignedUpDownIncreaseOrderPlan(intent, receiver, acceptablePriceSlippageBps);
-    return json(serialize(plan));
+    const [plan, fee] = await Promise.all([
+      Promise.resolve(buildUnsignedUpDownIncreaseOrderPlan(intent, receiver, acceptablePriceSlippageBps)),
+      estimateUpDownIncreaseExecutionFee(),
+    ]);
+
+    return json(serialize({
+      ...plan,
+      liveExecutionFee: fee,
+      params: {
+        ...plan.params,
+        numbers: {
+          ...plan.params.numbers,
+          executionFee: fee.bufferedFeeWei,
+        },
+      },
+      requiresLiveExecutionFee: false,
+      feeResolvedAt: new Date().toISOString(),
+      executionEnabled: false,
+    }));
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "Order preview failed" }, 400);
+    return json({
+      error: error instanceof Error ? error.message : "Order preview failed",
+      executionEnabled: false,
+      failClosed: true,
+    }, 400);
   }
 }
