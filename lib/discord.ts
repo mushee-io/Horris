@@ -1,4 +1,4 @@
-import type { HorrisRisk } from "./mento";
+import type { HorrisRisk } from "./risk-config";
 import { simulatePolicy } from "./policy";
 import { proposeStableStrategy } from "./strategy";
 import { analyzePerpIntent, type PerpRiskProfile, type PerpSide } from "./perps";
