@@ -45,20 +45,27 @@ contract HorrisPolicyVaultTest {
 
     function testApprovedExecutionConsumesDailyLimit() public {
         vault.deposit(address(token), 200e6);
-        vault.execute(address(adapter), address(token), 75e6, 70e6, 25, "", block.timestamp + 1 hours);
+        vault.execute(address(adapter), address(token), 75e6, 70e6, 25, "", block.timestamp + 5 minutes);
         require(vault.spentToday() == 75e6, "daily spend");
+        require(vault.depositedByAsset(address(token)) == 125e6, "execution accounting");
     }
 
     function testExecutionAboveCapReverts() public {
         vault.deposit(address(token), 200e6);
-        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 101e6, 90e6, 25, bytes(""), block.timestamp + 1 hours)));
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 101e6, 90e6, 25, bytes(""), block.timestamp + 5 minutes)));
         require(!ok, "execution cap should revert");
     }
 
     function testSlippageAbovePolicyReverts() public {
         vault.deposit(address(token), 100e6);
-        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 40e6, 51, bytes(""), block.timestamp + 1 hours)));
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 40e6, 51, bytes(""), block.timestamp + 5 minutes)));
         require(!ok, "slippage cap should revert");
+    }
+
+    function testRejectsLongDeadline() public {
+        vault.deposit(address(token), 100e6);
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 40e6, 25, bytes(""), block.timestamp + 31 minutes)));
+        require(!ok, "long deadline should revert");
     }
 
     function testPauseBlocksDeposit() public {
