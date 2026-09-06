@@ -1,6 +1,7 @@
 import { encodeFunctionData, keccak256, type Address, type Hex } from "viem";
 import { UPDOWN_CELO } from "./updown";
 import type { UnsignedUpDownIncreaseOrderPlan } from "./updown-order";
+import type { UnsignedUpDownProtectionPlan } from "./updown-protection";
 
 const exchangeRouterAbi = [
   {
@@ -81,8 +82,8 @@ export type UpDownUnsignedTransaction = {
     token: Address;
     spender: Address;
     minimumAmount: bigint;
-  };
-  calls: readonly ["sendWnt", "sendTokens", "createOrder"];
+  } | null;
+  calls: readonly string[];
   executionEnabled: false;
 };
 
@@ -101,26 +102,14 @@ export function encodeUnsignedUpDownMulticall(
     },
   };
 
-  const sendWnt = encodeFunctionData({
-    abi: exchangeRouterAbi,
-    functionName: "sendWnt",
-    args: [plan.orderVault, executionFeeWei],
-  });
+  const sendWnt = encodeFunctionData({ abi: exchangeRouterAbi, functionName: "sendWnt", args: [plan.orderVault, executionFeeWei] });
   const sendTokens = encodeFunctionData({
     abi: exchangeRouterAbi,
     functionName: "sendTokens",
     args: [plan.params.addresses.initialCollateralToken, plan.orderVault, plan.params.numbers.initialCollateralDeltaAmount],
   });
-  const createOrder = encodeFunctionData({
-    abi: exchangeRouterAbi,
-    functionName: "createOrder",
-    args: [params],
-  });
-  const data = encodeFunctionData({
-    abi: exchangeRouterAbi,
-    functionName: "multicall",
-    args: [[sendWnt, sendTokens, createOrder]],
-  });
+  const createOrder = encodeFunctionData({ abi: exchangeRouterAbi, functionName: "createOrder", args: [params] });
+  const data = encodeFunctionData({ abi: exchangeRouterAbi, functionName: "multicall", args: [[sendWnt, sendTokens, createOrder]] });
 
   return {
     chainId: 42220,
@@ -134,6 +123,38 @@ export function encodeUnsignedUpDownMulticall(
       minimumAmount: plan.params.numbers.initialCollateralDeltaAmount,
     },
     calls: ["sendWnt", "sendTokens", "createOrder"],
+    executionEnabled: false,
+  };
+}
+
+export function encodeUnsignedUpDownProtectionMulticall(
+  plan: UnsignedUpDownProtectionPlan,
+  executionFeeWei: bigint,
+): UpDownUnsignedTransaction {
+  if (plan.executionEnabled !== false) throw new Error("Only unsigned Horris protection plans can be encoded");
+  if (executionFeeWei <= 0n) throw new Error("A positive live decrease-order execution fee is required");
+  if (plan.params.numbers.initialCollateralDeltaAmount !== 0n) throw new Error("Protection orders must not send additional collateral");
+  if (plan.params.orderType !== 5 && plan.params.orderType !== 6) throw new Error("Unsupported protection order type");
+
+  const params = {
+    ...plan.params,
+    numbers: {
+      ...plan.params.numbers,
+      executionFee: executionFeeWei,
+    },
+  };
+  const sendWnt = encodeFunctionData({ abi: exchangeRouterAbi, functionName: "sendWnt", args: [plan.orderVault, executionFeeWei] });
+  const createOrder = encodeFunctionData({ abi: exchangeRouterAbi, functionName: "createOrder", args: [params] });
+  const data = encodeFunctionData({ abi: exchangeRouterAbi, functionName: "multicall", args: [[sendWnt, createOrder]] });
+
+  return {
+    chainId: 42220,
+    to: plan.exchangeRouter,
+    value: executionFeeWei,
+    data,
+    calldataHash: keccak256(data),
+    approval: null,
+    calls: ["sendWnt", "createOrder"],
     executionEnabled: false,
   };
 }
