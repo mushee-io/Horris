@@ -17,13 +17,16 @@ contract DeployHorris {
     address constant CELO_SEPOLIA_USDC = 0x01C5C0122039549AD1493B8220cABEdD739BC44E;
     address constant CELO_SEPOLIA_USDM = 0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b;
     address constant MENTO_ROUTER = 0xcf6cD45210b3ffE3cA28379C4683F1e60D0C2CCd;
+    address constant MENTO_FPMM_FACTORY = 0x353ED52bF8482027C0e0b9e3c0e5d96A9F680980;
 
     function run() external returns (HorrisPolicyVault vault, HorrisMentoAdapter adapter) {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address agent = vm.envAddress("HORRIS_AGENT");
+        require(agent != address(0), "ZERO_AGENT");
+
         vm.startBroadcast(deployerKey);
         vault = new HorrisPolicyVault(agent, 1_000e6, 2_500e6, 50);
-        adapter = new HorrisMentoAdapter(address(vault), MENTO_ROUTER, CELO_SEPOLIA_USDC, CELO_SEPOLIA_USDM);
+        adapter = new HorrisMentoAdapter(address(vault), MENTO_ROUTER, MENTO_FPMM_FACTORY, CELO_SEPOLIA_USDC, CELO_SEPOLIA_USDM);
         vault.setAllowedAsset(CELO_SEPOLIA_USDC, true);
         vault.setAllowedAsset(CELO_SEPOLIA_USDM, true);
         vault.setAllowedAdapter(address(adapter), true);
