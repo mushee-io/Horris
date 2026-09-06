@@ -21,6 +21,12 @@ contract MockAdapter is IHorrisAdapter {
     }
 }
 
+contract AgentCaller {
+    function execute(HorrisPolicyVault vault, address adapter, address asset, uint256 amount) external returns (bool ok) {
+        (ok,) = address(vault).call(abi.encodeCall(vault.execute, (adapter, asset, amount, amount - 1, 25, bytes(""), block.timestamp + 5 minutes)));
+    }
+}
+
 contract HorrisPolicyVaultTest {
     MockToken token;
     MockAdapter adapter;
@@ -56,6 +62,14 @@ contract HorrisPolicyVaultTest {
         require(!ok, "execution cap should revert");
     }
 
+    function testDailyCapReverts() public {
+        vault.deposit(address(token), 300e6);
+        vault.execute(address(adapter), address(token), 100e6, 99e6, 25, "", block.timestamp + 5 minutes);
+        vault.execute(address(adapter), address(token), 100e6, 99e6, 25, "", block.timestamp + 5 minutes);
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 51e6, 50e6, 25, bytes(""), block.timestamp + 5 minutes)));
+        require(!ok, "daily cap should revert");
+    }
+
     function testSlippageAbovePolicyReverts() public {
         vault.deposit(address(token), 100e6);
         (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 40e6, 51, bytes(""), block.timestamp + 5 minutes)));
@@ -66,6 +80,22 @@ contract HorrisPolicyVaultTest {
         vault.deposit(address(token), 100e6);
         (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 40e6, 25, bytes(""), block.timestamp + 31 minutes)));
         require(!ok, "long deadline should revert");
+    }
+
+    function testBlockedAdapterReverts() public {
+        MockAdapter blocked = new MockAdapter(token);
+        vault.deposit(address(token), 100e6);
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(blocked), address(token), 50e6, 40e6, 25, bytes(""), block.timestamp + 5 minutes)));
+        require(!ok, "blocked adapter should revert");
+    }
+
+    function testRevokedAgentCannotExecute() public {
+        AgentCaller caller = new AgentCaller();
+        vault.deposit(address(token), 100e6);
+        vault.setAgent(address(caller));
+        require(caller.execute(vault, address(adapter), address(token), 10e6), "agent should execute");
+        vault.revokeAgent();
+        require(!caller.execute(vault, address(adapter), address(token), 10e6), "revoked agent should fail");
     }
 
     function testPauseBlocksDeposit() public {
