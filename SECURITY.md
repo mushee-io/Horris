@@ -1,125 +1,100 @@
 # Horris security model
 
-Horris is testnet-stage, unaudited software. Do not use it with production funds.
+Horris is unaudited testnet-stage software. Do not use production funds through the Horris vault, and do not treat the current UpDown integration as an approved mainnet execution system.
 
-## Trust model
+## Core rule
 
-The Horris vault separates custody from strategy generation. Offchain strategy or AI output is advisory. Funds can move only through the vault's onchain authorization and risk checks.
+Strategy/AI output is advisory. Horris must fail closed when custody, venue state, risk policy, oracle state, transaction compilation or simulation cannot be independently checked.
 
-The current Celo Sepolia deployment model trusts:
+## Stablecoin custody boundary
 
-- the vault owner, who controls deposits, withdrawals, policy changes, allowlists and agent assignment;
-- an optional agent address, which may execute but cannot withdraw or change policy;
-- the configured Mento Router and FPMM factory;
-- the configured USDC and USDm token contracts;
-- Celo Sepolia consensus and RPC availability.
+`HorrisPolicyVault` on Celo Sepolia enforces owner custody, revocable agent execution, pause, asset/adapter allowlists, mandatory execution/daily caps, quote-derived slippage limits, actual input/output balance accounting, exact approvals and reentrancy protection.
 
-The perpetual subsystem additionally tracks UpDown Celo mainnet contract/market metadata from a pinned public source commit. **No UpDown trade execution is enabled yet.**
+`HorrisMentoAdapter` pins the Mento Router, FPMM factory, USDC and USDm. Routes must be continuous, 1–3 hops, use the pinned factory and end at the configured output asset. Output is measured by balance delta before funds return to the vault.
 
-## Enforced stablecoin invariants
+The owner can still change configured risk/allowlist policy within hard-coded contract bounds. Horris contracts have not received an independent audit or formal verification.
 
-`HorrisPolicyVault` currently enforces:
+## Perpetual boundary
 
-- owner-only deposits and withdrawals;
-- owner emergency withdrawals remain available while paused;
-- optional agent execution can be revoked immediately;
-- deposits use actual token balance deltas and reject fee-on-transfer accounting mismatches;
-- only contract addresses can be allowlisted as assets or adapters;
-- nonzero execution and daily limits are mandatory;
-- execution cap cannot exceed the daily cap;
-- configurable slippage is hard-capped at 5% by the contract;
-- execution deadlines must be current and no more than 30 minutes ahead;
-- execution amount cannot exceed accounted vault funds, the per-execution cap or remaining daily budget;
-- output assets must be allowlisted and different from the input asset;
-- minimum output is checked against the adapter's current onchain Mento quote rather than a caller-reported slippage value;
-- adapter allowances are reset before use, set to the exact amount and cleared after execution;
-- the vault verifies its actual output-token balance delta against the adapter-reported output;
-- input accounting is debited and output accounting is credited after successful execution;
-- deposits and executions are protected by a reentrancy lock.
+The current perp subsystem targets UpDown on Celo mainnet but **cannot broadcast an UpDown transaction**.
 
-`HorrisMentoAdapter` additionally enforces:
+`HorrisPerpPolicy` is a venue-independent guard. It checks market allowlisting, leverage, maximum notional, projected account risk, margin utilization and a conservative stop buffer. It does not independently derive those values from UpDown calldata, so it is not yet a sufficient authorization boundary for mainnet execution.
 
-- only the configured Horris vault may execute swaps;
-- immutable Router, FPMM factory, input token and output token;
-- one to three route hops only;
-- route starts at configured USDC and ends at configured USDm;
-- every route hop must use the pinned Mento FPMM factory;
-- route continuity and nonzero/different assets per hop;
-- positive input/minimum output and bounded deadlines;
-- exact Router approval that is cleared after execution;
-- actual received output is measured before returning tokens to the vault.
+A future execution architecture must derive/verify the exact venue values it submits and couple them to Horris policy before signing is enabled.
 
-## Perpetual risk safeguards
+## UpDown read/compile protections
 
-The offchain `lib/perps.ts` engine currently validates:
+Current Horris code:
 
-- leverage caps by Horris risk profile;
-- maximum position notional;
-- stop-loss direction;
-- projected account loss at stop;
-- margin utilization;
-- stop distance versus gross margin-exhaustion move;
-- take-profit direction;
-- reward/risk when a take-profit is supplied.
+- pins UpDown contract/market metadata from a known public source commit;
+- verifies live contract bytecode before execution-bound readiness;
+- reads positions using UpDown Reader;
+- reads pending orders directly from UpDown DataStore;
+- reads live increase/decrease execution-fee configuration from DataStore plus current Celo gas price;
+- applies a 125% fee buffer and fails closed when fee reads fail;
+- reads the UpDown Chainlink price provider and rejects invalid/stale (>10 minute) prices;
+- compiles only Horris-approved MarketIncrease orders;
+- limits acceptable-price slippage in the unsigned entry compiler;
+- checks USDT balance, Router allowance and native CELO fee balance;
+- can `eth_call` simulate the exact entry multicall when allowance/state make simulation meaningful;
+- confirms a future entry using actual pending-order / live-position state rather than trusting a transaction hash;
+- calculates active stop coverage from pending StopLossDecrease orders;
+- treats frozen stops as blocking failures;
+- compiles stop/TP protection only from a fresh live position read;
+- subtracts existing active coverage and compiles only uncovered position size;
+- rejects stop-loss/take-profit triggers on the wrong side of the fresh live oracle price;
+- compiles protection as `sendWnt → createOrder` with no additional collateral approval;
+- `eth_call` simulates exact protection calldata;
+- re-reads pending order state before compiling a cancellation;
+- can compile and simulate `cancelOrder` recovery calldata for frozen/pending exposure;
+- never sets `executionEnabled` to true in the current perp API/state machine.
 
-`HorrisPerpPolicy` provides the first onchain venue-independent guard and enforces:
+## Asynchronous protection risk
 
-- owner/agent authorization and revocation;
-- pause state;
-- market allowlisting;
-- a contract-level absolute leverage ceiling of 10x;
-- a contract-level absolute account-risk ceiling of 5%;
-- a contract-level absolute margin-utilization ceiling of 50%;
-- configured maximum notional exposure;
-- consistency between margin, leverage and submitted notional;
-- projected stop-loss account-risk cap;
-- stop-distance buffer before gross margin exhaustion.
+UpDown entry and protective decrease orders are separate asynchronous actions. A position can exist before a stop-loss order has been successfully created/executed by the venue.
 
-### Critical perpetual trust boundary
+Therefore Horris explicitly models:
 
-`HorrisPerpPolicy` **does not execute trades, custody margin, read UpDown orders, or independently discover venue prices**. Its normalized proposal values are not sufficient for secure execution if they are supplied by an untrusted caller.
+- `awaiting-position`
+- `protection-required`
+- `protected`
+- `review-exposure`
+- `blocked`
 
-Before perpetual execution is enabled, a dedicated UpDown adapter must derive or independently verify leverage, margin, notional, market, acceptable price and stop data from the exact order it will submit, then couple those verified values to `HorrisPerpPolicy`. Until that exists and is adversarially tested, the dashboard/API remain analysis-only and return `executionEnabled: false`.
+A future signing system must not describe an entry as “protected” until the live position is observed and sufficient active stop coverage is visible in venue state.
 
-The gross margin-exhaustion calculation is deliberately labeled an estimate. It is not an UpDown liquidation-price oracle. Actual liquidation can be affected by venue maintenance margin, fees, funding, price impact, keeper execution, oracle behavior and protocol configuration.
+If protection compilation or simulation fails after a future entry, the system must fail closed, prevent new exposure and surface a recovery path. It must not silently continue automation.
 
-## Frontend and Discord safeguards
+## Frontend/API safeguards
 
-- vault execution is simulated with `eth_call` before the wallet is asked to sign;
-- the dashboard checks current owner/agent authorization, pause state, accounted USDC, execution cap, remaining daily budget and vault accounting health before execution;
-- wallet-direct Mento execution is disabled by default and requires the explicit `NEXT_PUBLIC_ALLOW_WALLET_DIRECT_DEMO=true` testnet flag;
-- the perpetual dashboard is read-only risk analysis and has no order-submission button;
-- Discord production requests require Ed25519 signature verification and reject stale timestamps;
-- Discord commands only produce strategy/risk responses; they do not directly custody or withdraw funds.
+- wallet-direct Mento execution is disabled by default;
+- stable vault execution is simulated before signing;
+- perp analysis, entry compilation, protection compilation, recovery compilation and state monitoring are read-only/unsigned;
+- no current perp API sends a transaction;
+- Discord requests use Ed25519 verification and stale timestamp rejection;
+- Discord commands are advisory only.
 
 ## Residual risks
 
-These controls do not make Horris production safe. Important remaining risks include:
+Important remaining risks include:
 
-- no independent smart-contract audit or formal verification;
-- external Mento or future UpDown contract vulnerabilities or governance/configuration changes;
-- spot-quote manipulation within underlying liquidity venues; the current Mento MVP does not use a TWAP or independent oracle for execution-price validation;
-- owner or agent key compromise;
-- malicious or compromised RPC/frontends can present misleading information even though onchain checks still apply;
-- contract owner can change allowlists and risk policy within hard-coded safety bounds;
-- Celo Sepolia assets have no production value guarantees;
-- perpetual venue metadata can become stale and must be re-verified against live bytecode/configuration before adapter release;
-- offchain perp analysis may diverge from actual venue mechanics, particularly liquidation, funding and price-impact calculations;
-- no production perpetual execution adapter has been approved or enabled yet.
+- no independent audit/formal verification;
+- Celo, Mento or UpDown vulnerabilities/configuration/governance changes;
+- stale or compromised RPC/frontends;
+- owner/agent key compromise;
+- UpDown order semantics or DataStore layout changing after the pinned source revision;
+- oracle outages, keeper delays, price impact, funding, fees and venue liquidation rules;
+- `eth_call` success does not guarantee a later transaction will succeed because chain state can change;
+- asynchronous entry → protection exposure cannot be made atomic by the current UpDown interface;
+- the current `HorrisPerpPolicy` is not yet cryptographically coupled to actual UpDown order calldata;
+- no current mainnet perp executor has been approved.
 
-## Incident response
+## Incident / recovery model
 
-If suspicious behavior is observed on a deployed testnet vault:
+For a deployed Horris testnet vault: pause, revoke the agent, disable affected policies/adapters, withdraw accounted assets and preserve transaction evidence.
 
-1. set the vault to paused;
-2. revoke the agent;
-3. disable the affected adapter and/or asset policy;
-4. withdraw accounted assets to the owner wallet;
-5. preserve transaction hashes and logs for investigation;
-6. do not resume execution until the cause is understood and a tested fix is deployed.
+For future perp execution: stop creation of new exposure first. Re-read positions/orders, identify frozen or uncovered risk, prepare cancellation/close/protection recovery, and do not resume automation until venue state is unambiguous and reviewed.
 
-For a future perpetual adapter, the equivalent incident process must additionally disable the affected market/adapter and prevent creation of new orders before any automation resumes.
+## Secrets
 
-## Reporting
-
-For this testnet repository, report security findings through the repository's GitHub issue/discussion channels without publishing private keys, credentials, seed phrases or other secrets.
+Never commit or transmit private keys, seed phrases, Discord bot tokens or deployment credentials through source control, chat, screenshots or public logs.
