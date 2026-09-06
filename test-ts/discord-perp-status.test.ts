@@ -54,7 +54,11 @@ describe("Discord perp status formatter", () => {
   });
 
   it("caps the number of position lines and total Discord response length", () => {
-    const positions = Array.from({ length: 8 }, (_, index) => ({ ...position, market: `BTC${index}/USDT` }));
+    const positions = Array.from({ length: 8 }, (_, index) => ({
+      ...position,
+      market: `TEST${index}/USDT`,
+      marketToken: `0x${(index + 1).toString(16).padStart(40, "0")}` as `0x${string}`,
+    }));
     const text = formatDiscordPerpStatus(positions, []);
     expect(text).toContain("+3 more position(s)");
     expect(text.length).toBeLessThanOrEqual(1900);
