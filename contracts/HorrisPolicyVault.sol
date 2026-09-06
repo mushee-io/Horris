@@ -65,12 +65,15 @@ contract HorrisPolicyVault {
     function setRiskPolicy(uint256 executionCap, uint256 dailyLimit, uint16 slippageCapBps) external onlyOwner {
         require(slippageCapBps <= 2_000, "SLIPPAGE_TOO_HIGH");
         require(executionCap <= dailyLimit || dailyLimit == 0, "CAP_GT_DAILY");
-        maxExecutionAmount = executionCap; dailyExecutionLimit = dailyLimit; maxSlippageBps = slippageCapBps;
+        maxExecutionAmount = executionCap;
+        dailyExecutionLimit = dailyLimit;
+        maxSlippageBps = slippageCapBps;
         emit RiskPolicyUpdated(executionCap, dailyLimit, slippageCapBps);
     }
 
     function deposit(address asset, uint256 amount) external onlyOwner whenNotPaused nonReentrant {
-        require(allowedAssets[asset], "ASSET_BLOCKED"); require(amount > 0, "ZERO_AMOUNT");
+        require(allowedAssets[asset], "ASSET_BLOCKED");
+        require(amount > 0, "ZERO_AMOUNT");
         uint256 beforeBalance = IERC20(asset).balanceOf(address(this));
         require(IERC20(asset).transferFrom(msg.sender, address(this), amount), "TRANSFER_FROM_FAILED");
         uint256 received = IERC20(asset).balanceOf(address(this)) - beforeBalance;
@@ -80,7 +83,8 @@ contract HorrisPolicyVault {
     }
 
     function withdraw(address asset, uint256 amount, address recipient) external onlyOwner nonReentrant {
-        require(recipient != address(0), "ZERO_RECIPIENT"); require(amount > 0 && amount <= depositedByAsset[asset], "BAD_AMOUNT");
+        require(recipient != address(0), "ZERO_RECIPIENT");
+        require(amount > 0 && amount <= depositedByAsset[asset], "BAD_AMOUNT");
         depositedByAsset[asset] -= amount;
         require(IERC20(asset).transfer(recipient, amount), "TRANSFER_FAILED");
         emit Withdrawn(asset, amount, recipient);
@@ -91,18 +95,44 @@ contract HorrisPolicyVault {
     {
         require(amountOutMin > 0, "ZERO_MIN_OUT");
         _consumePolicy(adapter, assetIn, amountIn, deadline);
-        address assetOut = IHorrisAdapter(adapter).tokenOut();
+
+        address assetOut = _validatedOutputAsset(adapter, assetIn);
+        uint16 effectiveSlippageBps = _enforceQuotedSlippage(adapter, amountIn, amountOutMin, routeData);
+        amountOut = _executeAdapter(adapter, assetIn, assetOut, amountIn, amountOutMin, routeData, deadline);
+
+        depositedByAsset[assetIn] -= amountIn;
+        depositedByAsset[assetOut] += amountOut;
+        emit ExecutionCompleted(adapter, assetIn, assetOut, amountIn, amountOut, effectiveSlippageBps);
+    }
+
+    function _validatedOutputAsset(address adapter, address assetIn) internal view returns (address assetOut) {
+        assetOut = IHorrisAdapter(adapter).tokenOut();
         require(assetOut != address(0) && assetOut != assetIn, "BAD_OUTPUT_ASSET");
         require(allowedAssets[assetOut], "OUTPUT_ASSET_BLOCKED");
+    }
 
+    function _enforceQuotedSlippage(address adapter, uint256 amountIn, uint256 amountOutMin, bytes calldata routeData)
+        internal view returns (uint16 effectiveSlippageBps)
+    {
         uint256 quotedOut = IHorrisAdapter(adapter).quote(amountIn, routeData);
         require(quotedOut > 0, "ZERO_QUOTE");
         uint256 minimumAllowed = (quotedOut * (10_000 - maxSlippageBps)) / 10_000;
         require(amountOutMin >= minimumAllowed, "SLIPPAGE_CAP");
-        uint256 slippageRaw = amountOutMin >= quotedOut ? 0 : ((quotedOut - amountOutMin) * 10_000) / quotedOut;
+        if (amountOutMin >= quotedOut) return 0;
+        uint256 slippageRaw = ((quotedOut - amountOutMin) * 10_000) / quotedOut;
         require(slippageRaw <= type(uint16).max, "SLIPPAGE_OVERFLOW");
-        uint16 effectiveSlippageBps = uint16(slippageRaw);
+        return uint16(slippageRaw);
+    }
 
+    function _executeAdapter(
+        address adapter,
+        address assetIn,
+        address assetOut,
+        uint256 amountIn,
+        uint256 amountOutMin,
+        bytes calldata routeData,
+        uint256 deadline
+    ) internal returns (uint256 amountOut) {
         uint256 beforeOut = IERC20(assetOut).balanceOf(address(this));
         require(IERC20(assetIn).approve(adapter, 0), "RESET_APPROVAL_FAILED");
         require(IERC20(assetIn).approve(adapter, amountIn), "APPROVAL_FAILED");
@@ -111,20 +141,18 @@ contract HorrisPolicyVault {
         require(amountOut >= amountOutMin, "MIN_OUT");
         uint256 receivedOut = IERC20(assetOut).balanceOf(address(this)) - beforeOut;
         require(receivedOut == amountOut, "OUTPUT_BALANCE_MISMATCH");
-
-        depositedByAsset[assetIn] -= amountIn;
-        depositedByAsset[assetOut] += receivedOut;
-        emit ExecutionCompleted(adapter, assetIn, assetOut, amountIn, receivedOut, effectiveSlippageBps);
     }
 
     function _consumePolicy(address adapter, address asset, uint256 amount, uint256 deadline) internal {
-        require(allowedAdapters[adapter], "ADAPTER_BLOCKED"); require(allowedAssets[asset], "ASSET_BLOCKED");
+        require(allowedAdapters[adapter], "ADAPTER_BLOCKED");
+        require(allowedAssets[asset], "ASSET_BLOCKED");
         require(amount > 0 && amount <= depositedByAsset[asset], "BAD_AMOUNT");
         require(deadline >= block.timestamp && deadline <= block.timestamp + 30 minutes, "BAD_DEADLINE");
         require(maxExecutionAmount == 0 || amount <= maxExecutionAmount, "EXECUTION_CAP");
         uint64 today = uint64(block.timestamp / 1 days);
         if (today != spendingDay) { spendingDay = today; spentToday = 0; }
-        require(dailyExecutionLimit == 0 || spentToday + amount <= dailyExecutionLimit, "DAILY_CAP"); spentToday += amount;
+        require(dailyExecutionLimit == 0 || spentToday + amount <= dailyExecutionLimit, "DAILY_CAP");
+        spentToday += amount;
     }
 
     function vaultBalance(address asset) external view returns (uint256) { return IERC20(asset).balanceOf(address(this)); }
