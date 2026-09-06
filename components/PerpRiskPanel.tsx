@@ -6,6 +6,27 @@ import { perpRiskPolicy, type PerpRiskAnalysis, type PerpRiskProfile, type PerpS
 import { UPDOWN_MARKETS } from "../lib/updown";
 
 type Result = { venue: string; executionEnabled: boolean; analysis: PerpRiskAnalysis; nextStep: string };
+type AuthorizationPreview = {
+  available: boolean;
+  reason?: string;
+  expiresAt?: string;
+  signingEnabled?: false;
+  submissionEnabled?: false;
+  note?: string;
+  typedData?: {
+    domain: { name: string; version: string; chainId: number; verifyingContract: Address };
+    primaryType: "Authorization";
+    message: {
+      calldataHash: `0x${string}`;
+      receiver: Address;
+      market: Address;
+      accountBalanceUsdE18: string;
+      stopDistanceBps: number;
+      nonce: string;
+      deadline: string;
+    };
+  };
+};
 type OrderPreview = {
   exchangeRouter: Address;
   orderVault: Address;
@@ -13,6 +34,7 @@ type OrderPreview = {
   preflightPassed: boolean;
   feeResolvedAt: string;
   nextStep: string;
+  authorizationPreview: AuthorizationPreview;
   liveExecutionFee: { bufferedFeeWei: string; bufferedFeeCelo: string; source: "live-readiness" };
   readiness: {
     approvalRequired: boolean;
@@ -88,8 +110,8 @@ export default function PerpRiskPanel({ account }: { account?: Address }) {
 
   return <section id="perps" className="perp-section shell">
     <div className="perp-head">
-      <div><p className="eyebrow">PERPETUAL EXECUTION LAYER</p><h2>Risk first. Venue second.</h2><p className="summary">Horris turns Celo perpetual intent into a policy verdict, an exact unsigned UpDown transaction and a live readiness/simulation result. Submission remains deliberately locked.</p></div>
-      <div className="perp-lock"><span className="dot" /> UPDOWN · CELO MAINNET<strong>Execution locked</strong><small>Compile, inspect and simulate only. No perp order can be broadcast from Horris.</small></div>
+      <div><p className="eyebrow">PERPETUAL EXECUTION LAYER</p><h2>Risk first. Venue second.</h2><p className="summary">Horris turns Celo perpetual intent into a policy verdict, an exact unsigned UpDown transaction, a live readiness/simulation result and—when configured—a review-only EIP-712 authorization payload. Submission remains deliberately locked.</p></div>
+      <div className="perp-lock"><span className="dot" /> UPDOWN · CELO MAINNET<strong>Execution locked</strong><small>Compile, inspect, simulate and review authorization data only. No perp order can be broadcast from Horris.</small></div>
     </div>
 
     <div className="workspace perp-workspace">
@@ -122,6 +144,17 @@ export default function PerpRiskPanel({ account }: { account?: Address }) {
           {orderPreview && <>
             <div className="order-preview"><small>UNSIGNED MULTICALL · {orderPreview.preflightPassed ? "PREFLIGHT PASS" : "PREFLIGHT BLOCKED"}</small><strong>{orderPreview.human.market} · {orderPreview.human.side.toUpperCase()} · ${orderPreview.human.notionalUsd.toFixed(2)}</strong><p>Calls: {orderPreview.unsignedTransaction.calls.join(" → ")}</p><p>Acceptable price: {orderPreview.human.acceptablePrice.toFixed(6)} · {orderPreview.human.acceptablePriceSlippageBps} bps</p><p>Live oracle: {Number(orderPreview.readiness.oracle.mid).toFixed(6)} · age {orderPreview.readiness.oracle.ageSeconds}s</p><p>Execution fee: {Number(orderPreview.liveExecutionFee.bufferedFeeCelo).toFixed(6)} CELO</p><p>Calldata: {orderPreview.unsignedTransaction.calldataHash.slice(0, 12)}…{orderPreview.unsignedTransaction.calldataHash.slice(-8)}</p><p>{orderPreview.simulation.success ? "Exact eth_call succeeded" : orderPreview.simulation.reason ?? "Simulation not passed"} · signing disabled</p></div>
             <div className="policy-box">{orderPreview.readiness.checks.map((check) => <div key={check.code}><span className="check">{check.passed ? "✓" : "×"}</span><p><strong>{check.code.replaceAll("_", " ")}</strong><small>{check.detail}</small></p></div>)}</div>
+            <div className="protection-preview">
+              <small>EIP-712 AUTHORIZATION · REVIEW ONLY</small>
+              {orderPreview.authorizationPreview.available && orderPreview.authorizationPreview.typedData ? <>
+                <strong>Exact transaction authorization prepared</strong>
+                <p>Verifier: {orderPreview.authorizationPreview.typedData.domain.verifyingContract.slice(0, 10)}…{orderPreview.authorizationPreview.typedData.domain.verifyingContract.slice(-8)}</p>
+                <p>Nonce: {orderPreview.authorizationPreview.typedData.message.nonce.slice(0, 18)}…</p>
+                <p>Stop distance: {orderPreview.authorizationPreview.typedData.message.stopDistanceBps} bps · account balance bound onchain</p>
+                <p>Calldata hash: {orderPreview.authorizationPreview.typedData.message.calldataHash.slice(0, 14)}…{orderPreview.authorizationPreview.typedData.message.calldataHash.slice(-10)}</p>
+                <p>Expires: {orderPreview.authorizationPreview.expiresAt ? new Date(orderPreview.authorizationPreview.expiresAt).toLocaleTimeString() : "—"} · no Sign button · no broadcast</p>
+              </> : <><strong>Authorization withheld</strong><p>{orderPreview.authorizationPreview.reason ?? "Authorization contract is not configured."}</p></>}
+            </div>
           </>}
           <p className="status">{orderPreview?.nextStep ?? result.nextStep}</p>
         </>}
