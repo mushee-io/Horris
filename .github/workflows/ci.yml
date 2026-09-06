@@ -23,6 +23,7 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund
       - run: npm audit --omit=dev --audit-level=high
+      - run: node --check scripts/register-discord.mjs && node --check scripts/verify-deployment.mjs
       - run: npm run typecheck
       - run: npm run build
 
