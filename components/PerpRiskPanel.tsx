@@ -5,27 +5,23 @@ import type { Address } from "viem";
 import { perpRiskPolicy, type PerpRiskAnalysis, type PerpRiskProfile, type PerpSide } from "../lib/perps";
 import { UPDOWN_MARKETS } from "../lib/updown";
 
-type Result = {
-  venue: string;
-  executionEnabled: boolean;
-  analysis: PerpRiskAnalysis;
-  nextStep: string;
-};
-
+type Result = { venue: string; executionEnabled: boolean; analysis: PerpRiskAnalysis; nextStep: string };
 type OrderPreview = {
   exchangeRouter: Address;
   orderVault: Address;
   executionEnabled: false;
-  requiresLiveExecutionFee: false;
+  preflightPassed: boolean;
   feeResolvedAt: string;
-  liveExecutionFee: {
-    bufferedFeeWei: string;
-    bufferedFeeCelo: string;
-    estimatedFeeWei: string;
-    estimatedGasLimit: string;
-    gasPriceWei: string;
-    source: "live-datastore";
+  nextStep: string;
+  liveExecutionFee: { bufferedFeeWei: string; bufferedFeeCelo: string; source: "live-readiness" };
+  readiness: {
+    approvalRequired: boolean;
+    readyForSimulation: boolean;
+    readyForSubmission: false;
+    checks: { code: string; passed: boolean; detail: string }[];
+    oracle: { mid: string; ageSeconds: number };
   };
+  simulation: { success?: boolean; skipped?: boolean; reverted?: boolean; reason?: string };
   unsignedTransaction: {
     chainId: 42220;
     to: Address;
@@ -57,91 +53,79 @@ export default function PerpRiskPanel({ account }: { account?: Address }) {
 
   const policy = useMemo(() => perpRiskPolicy[risk], [risk]);
   const payload = { market, side, risk, marginUsd, leverage, accountBalanceUsd, entryPrice, stopLoss, takeProfit };
-
-  function invalidate() {
-    setResult(undefined);
-    setOrderPreview(undefined);
-  }
+  function invalidate() { setResult(undefined); setOrderPreview(undefined); }
 
   async function analyze() {
-    setBusy(true);
-    invalidate();
-    setStatus("Running Horris perpetual risk checks…");
+    setBusy(true); invalidate(); setStatus("Running Horris perpetual risk checks…");
     try {
       const response = await fetch("/api/perps/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Risk analysis failed");
       setResult(data);
       setStatus(data.analysis.approved ? "Horris approved the risk plan ✓" : "Horris blocked this trade plan");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Risk analysis failed");
-    } finally {
-      setBusy(false);
-    }
+    } catch (error) { setStatus(error instanceof Error ? error.message : "Risk analysis failed"); }
+    finally { setBusy(false); }
   }
 
   async function compileOrderPreview() {
     if (!account) return setStatus("Connect a wallet to compile the receiver-specific UpDown order preview");
     if (!result?.analysis.approved) return setStatus("Horris must approve the risk plan first");
-    setBusy(true);
-    setOrderPreview(undefined);
-    setStatus("Compiling approved risk plan, live fee and exact UpDown multicall…");
+    setBusy(true); setOrderPreview(undefined); setStatus("Compiling order + live Celo readiness + exact simulation gate…");
     try {
       const response = await fetch("/api/perps/order-preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...payload, receiver: account, acceptablePriceSlippageBps: 50 }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Order preview failed");
       setOrderPreview(data);
-      setStatus("Unsigned UpDown multicall compiled ✓ · signing and submission remain disabled");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Order preview failed");
-    } finally {
-      setBusy(false);
-    }
+      setStatus(data.preflightPassed
+        ? "Unsigned UpDown multicall + live eth_call preflight passed ✓ · signing disabled"
+        : "Unsigned order compiled · readiness still blocks signing");
+    } catch (error) { setStatus(error instanceof Error ? error.message : "Order preview failed"); }
+    finally { setBusy(false); }
   }
 
-  return (
-    <section id="perps" className="perp-section shell">
-      <div className="perp-head">
-        <div><p className="eyebrow">PERPETUAL EXECUTION LAYER</p><h2>Risk first. Venue second.</h2><p className="summary">Horris understands Celo perpetual trade intent before execution. The current venue registry targets UpDown, while submission remains deliberately disabled until a dedicated adapter passes the same security bar as Mento.</p></div>
-        <div className="perp-lock"><span className="dot" /> UPDOWN · CELO MAINNET<strong>Execution locked</strong><small>Risk analysis and unsigned multicall compilation only. No perp order can be submitted here.</small></div>
+  return <section id="perps" className="perp-section shell">
+    <div className="perp-head">
+      <div><p className="eyebrow">PERPETUAL EXECUTION LAYER</p><h2>Risk first. Venue second.</h2><p className="summary">Horris turns Celo perpetual intent into a policy verdict, an exact unsigned UpDown transaction and a live readiness/simulation result. Submission remains deliberately locked.</p></div>
+      <div className="perp-lock"><span className="dot" /> UPDOWN · CELO MAINNET<strong>Execution locked</strong><small>Compile, inspect and simulate only. No perp order can be broadcast from Horris.</small></div>
+    </div>
+
+    <div className="workspace perp-workspace">
+      <div className="panel builder">
+        <div className="panel-head"><span>04</span><h2>Perp intent</h2></div>
+        <div className="field-grid">
+          <label>Market<select value={market} onChange={(event) => { setMarket(event.target.value); invalidate(); }}>{UPDOWN_MARKETS.map((item) => <option key={item.symbol}>{item.symbol}</option>)}</select></label>
+          <label>Side<select value={side} onChange={(event) => { setSide(event.target.value as PerpSide); invalidate(); }}><option value="long">Long</option><option value="short">Short</option></select></label>
+          <label>Account balance<input value={accountBalanceUsd} onChange={(event) => { setAccountBalanceUsd(event.target.value); invalidate(); }} inputMode="decimal" /></label>
+          <label>Margin<input value={marginUsd} onChange={(event) => { setMarginUsd(event.target.value); invalidate(); }} inputMode="decimal" /></label>
+          <label>Entry price<input value={entryPrice} onChange={(event) => { setEntryPrice(event.target.value); invalidate(); }} inputMode="decimal" /></label>
+          <label>Leverage<input value={leverage} onChange={(event) => { setLeverage(event.target.value); invalidate(); }} inputMode="decimal" /></label>
+          <label>Stop loss<input value={stopLoss} onChange={(event) => { setStopLoss(event.target.value); invalidate(); }} inputMode="decimal" /></label>
+          <label>Take profit<input value={takeProfit} onChange={(event) => { setTakeProfit(event.target.value); invalidate(); }} inputMode="decimal" /></label>
+        </div>
+        <label>Risk profile</label>
+        <div className="risk-grid">{(["Conservative", "Balanced", "Aggressive"] as PerpRiskProfile[]).map((item) => <button key={item} className={risk === item ? "risk active" : "risk"} onClick={() => { setRisk(item); invalidate(); }}>{item}</button>)}</div>
+        <div className="perp-policy-strip"><span>Max leverage {policy.maxLeverage}×</span><span>Max account risk {policy.maxAccountRiskPercent}%</span><span>Max margin {policy.maxMarginUtilizationPercent}%</span></div>
+        <button className="button primary" disabled={busy} onClick={analyze}>{busy ? "Analyzing…" : "Analyze perp risk"}</button>
+        <p className="status">{status}</p>
       </div>
 
-      <div className="workspace perp-workspace">
-        <div className="panel builder">
-          <div className="panel-head"><span>04</span><h2>Perp intent</h2></div>
-          <div className="field-grid">
-            <label>Market<select value={market} onChange={(event) => { setMarket(event.target.value); invalidate(); }}>{UPDOWN_MARKETS.map((item) => <option key={item.symbol}>{item.symbol}</option>)}</select></label>
-            <label>Side<select value={side} onChange={(event) => { setSide(event.target.value as PerpSide); invalidate(); }}><option value="long">Long</option><option value="short">Short</option></select></label>
-            <label>Account balance<input value={accountBalanceUsd} onChange={(event) => { setAccountBalanceUsd(event.target.value); invalidate(); }} inputMode="decimal" /></label>
-            <label>Margin<input value={marginUsd} onChange={(event) => { setMarginUsd(event.target.value); invalidate(); }} inputMode="decimal" /></label>
-            <label>Entry price<input value={entryPrice} onChange={(event) => { setEntryPrice(event.target.value); invalidate(); }} inputMode="decimal" /></label>
-            <label>Leverage<input value={leverage} onChange={(event) => { setLeverage(event.target.value); invalidate(); }} inputMode="decimal" /></label>
-            <label>Stop loss<input value={stopLoss} onChange={(event) => { setStopLoss(event.target.value); invalidate(); }} inputMode="decimal" /></label>
-            <label>Take profit<input value={takeProfit} onChange={(event) => { setTakeProfit(event.target.value); invalidate(); }} inputMode="decimal" /></label>
-          </div>
-          <label>Risk profile</label>
-          <div className="risk-grid">{(["Conservative", "Balanced", "Aggressive"] as PerpRiskProfile[]).map((item) => <button key={item} className={risk === item ? "risk active" : "risk"} onClick={() => { setRisk(item); invalidate(); }}>{item}</button>)}</div>
-          <div className="perp-policy-strip"><span>Max leverage {policy.maxLeverage}×</span><span>Max account risk {policy.maxAccountRiskPercent}%</span><span>Max margin {policy.maxMarginUtilizationPercent}%</span></div>
-          <button className="button primary" disabled={busy} onClick={analyze}>{busy ? "Analyzing…" : "Analyze perp risk"}</button>
-          <p className="status">{status}</p>
-        </div>
-
-        <div className="panel strategy">
-          <div className="panel-head"><span>05</span><h2>Risk verdict</h2></div>
-          {!result ? <div className="empty-state"><span>↗</span><div><strong>No risk plan yet</strong><p>Enter a trade setup and Horris will calculate notional, stop-loss exposure, account risk, margin usage and reward/risk.</p></div></div> : <>
-            <div className="strategy-title"><div><p>{result.venue.toUpperCase()} RISK PLAN</p><h3>{result.analysis.approved ? "APPROVED" : "BLOCKED"}</h3></div><span className="badge">{risk}</span></div>
-            <div className="metrics"><div><small>NOTIONAL</small><strong>${result.analysis.notionalUsd.toFixed(2)}</strong></div><div><small>ACCOUNT RISK</small><strong>{result.analysis.accountRiskPercent.toFixed(2)}%</strong></div><div><small>STOP DISTANCE</small><strong>{result.analysis.stopDistancePercent.toFixed(2)}%</strong></div></div>
-            <div className="policy-box">{result.analysis.checks.map((check) => <div key={check.code}><span className="check">{check.passed ? "✓" : "×"}</span><p><strong>{check.label}</strong><small>{check.detail}</small></p></div>)}</div>
-            {result.analysis.approved && <button className="button primary" disabled={busy || !account} onClick={compileOrderPreview}>{!account ? "Connect wallet for order preview" : "Compile unsigned UpDown multicall"}</button>}
-            {orderPreview && <div className="order-preview"><small>UNSIGNED MULTICALL · LIVE DATASTORE FEE</small><strong>{orderPreview.human.market} · {orderPreview.human.side.toUpperCase()} · ${orderPreview.human.notionalUsd.toFixed(2)}</strong><p>Calls: {orderPreview.unsignedTransaction.calls.join(" → ")}</p><p>Acceptable price: {orderPreview.human.acceptablePrice.toFixed(6)} · {orderPreview.human.acceptablePriceSlippageBps} bps bound</p><p>Execution fee: {Number(orderPreview.liveExecutionFee.bufferedFeeCelo).toFixed(6)} CELO · 25% buffer</p><p>Approval spender: {orderPreview.unsignedTransaction.approval.spender.slice(0, 8)}…{orderPreview.unsignedTransaction.approval.spender.slice(-6)}</p><p>Calldata hash: {orderPreview.unsignedTransaction.calldataHash.slice(0, 12)}…{orderPreview.unsignedTransaction.calldataHash.slice(-8)}</p><p>Fee read: {new Date(orderPreview.feeResolvedAt).toLocaleTimeString()} · signing disabled</p></div>}
-            <p className="status">{result.nextStep}</p>
+      <div className="panel strategy">
+        <div className="panel-head"><span>05</span><h2>Risk verdict</h2></div>
+        {!result ? <div className="empty-state"><span>↗</span><div><strong>No risk plan yet</strong><p>Enter a trade setup and Horris will calculate notional, stop-loss exposure, account risk, margin usage and reward/risk.</p></div></div> : <>
+          <div className="strategy-title"><div><p>{result.venue.toUpperCase()} RISK PLAN</p><h3>{result.analysis.approved ? "APPROVED" : "BLOCKED"}</h3></div><span className="badge">{risk}</span></div>
+          <div className="metrics"><div><small>NOTIONAL</small><strong>${result.analysis.notionalUsd.toFixed(2)}</strong></div><div><small>ACCOUNT RISK</small><strong>{result.analysis.accountRiskPercent.toFixed(2)}%</strong></div><div><small>STOP DISTANCE</small><strong>{result.analysis.stopDistancePercent.toFixed(2)}%</strong></div></div>
+          <div className="policy-box">{result.analysis.checks.map((check) => <div key={check.code}><span className="check">{check.passed ? "✓" : "×"}</span><p><strong>{check.label}</strong><small>{check.detail}</small></p></div>)}</div>
+          {result.analysis.approved && <button className="button primary" disabled={busy || !account} onClick={compileOrderPreview}>{!account ? "Connect wallet for order preview" : "Compile + preflight UpDown order"}</button>}
+          {orderPreview && <>
+            <div className="order-preview"><small>UNSIGNED MULTICALL · {orderPreview.preflightPassed ? "PREFLIGHT PASS" : "PREFLIGHT BLOCKED"}</small><strong>{orderPreview.human.market} · {orderPreview.human.side.toUpperCase()} · ${orderPreview.human.notionalUsd.toFixed(2)}</strong><p>Calls: {orderPreview.unsignedTransaction.calls.join(" → ")}</p><p>Acceptable price: {orderPreview.human.acceptablePrice.toFixed(6)} · {orderPreview.human.acceptablePriceSlippageBps} bps</p><p>Live oracle: {Number(orderPreview.readiness.oracle.mid).toFixed(6)} · age {orderPreview.readiness.oracle.ageSeconds}s</p><p>Execution fee: {Number(orderPreview.liveExecutionFee.bufferedFeeCelo).toFixed(6)} CELO</p><p>Calldata: {orderPreview.unsignedTransaction.calldataHash.slice(0, 12)}…{orderPreview.unsignedTransaction.calldataHash.slice(-8)}</p><p>{orderPreview.simulation.success ? "Exact eth_call succeeded" : orderPreview.simulation.reason ?? "Simulation not passed"} · signing disabled</p></div>
+            <div className="policy-box">{orderPreview.readiness.checks.map((check) => <div key={check.code}><span className="check">{check.passed ? "✓" : "×"}</span><p><strong>{check.code.replaceAll("_", " ")}</strong><small>{check.detail}</small></p></div>)}</div>
           </>}
-        </div>
+          <p className="status">{orderPreview?.nextStep ?? result.nextStep}</p>
+        </>}
       </div>
-    </section>
-  );
+    </div>
+  </section>;
 }
