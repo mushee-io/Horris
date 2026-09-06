@@ -1,59 +1,59 @@
 # Horris
 
-**AI execution infrastructure for Celo with policy-enforced risk controls.**
+**AI execution infrastructure for Celo with enforceable risk controls.**
 
-Horris turns user intent into structured DeFi proposals, checks those proposals against deterministic policy, and routes execution through user-controlled onchain custody and narrowly scoped protocol adapters.
+Horris turns trade intent into structured proposals, checks them against deterministic risk policy, compiles venue-specific execution calldata, verifies live venue state, and keeps signing disabled until the execution path satisfies Horris' safety gates.
 
-> Testnet-stage and unaudited. Do not use production funds.
+> Testnet-stage and unaudited. Do not use production funds. UpDown mainnet transaction submission is intentionally disabled.
 
 ## Architecture
 
 ```text
 Dashboard / Discord / SDK
           ↓
-Horris Strategy + Perp Risk Engine
+Intent + Horris Risk Engine
           ↓
-Policy Simulation + Onchain Preflight
+Policy + Live Venue Readiness
           ↓
-Manual or Guarded Automation
+Unsigned Transaction Compiler
           ↓
-HorrisPolicyVault / HorrisPerpPolicy
+Read-only eth_call Simulation
           ↓
-Pinned / Allowlisted Venue Adapter
+User / Agent Signing Boundary  ← currently locked for perps
           ↓
-Celo
+Pinned Venue Contracts on Celo
 ```
 
-## Milestone status
+## Milestones
 
 - [x] M1 — Dashboard + Celo wallet
-- [x] M2 — Live Mento quote and optional wallet-direct testnet demo
-- [x] M3 — Vault deposits, USDC/USDm withdrawals, pause and agent revocation
-- [x] M4 — Onchain asset/adapter, execution, daily and quote-derived slippage policies
-- [x] M5 — Narrow Mento adapter with immutable Router/factory/token pair
-- [x] M6 — Foundry configuration + expanded policy/adapter security tests
-- [x] M7 — Structured strategy proposal engine
-- [x] M8 — Deterministic pre-execution policy simulation
-- [x] M9 — Restricted owner/agent permission model
-- [x] M10 — Manual + guarded automation decision engine
-- [x] M11 — Portfolio snapshot + indexed onchain execution activity
-- [x] M12 — Extensible adapter architecture (Mento first)
-- [x] M13 — Horris TypeScript SDK + strategy API
-- [x] M14 — Discord slash-command endpoint with Ed25519 verification + registration script
-- [x] M15 — CI and security-hardening baseline
-- [ ] M16 — Signed Celo Sepolia deployment, explorer verification and end-to-end live vault transaction
-- [x] M17 — Celo perpetual market registry + offchain perp risk engine + onchain venue-independent perp policy guard
-- [ ] M18 — Hardened UpDown execution adapter with independently verified order values and onchain policy coupling
+- [x] M2 — Live Mento quote + optional testnet demo mode
+- [x] M3 — Horris vault deposits/withdrawals, pause and agent revocation
+- [x] M4 — Onchain execution/daily/asset/adapter/slippage policies
+- [x] M5 — Pinned Mento Router/factory/token adapter
+- [x] M6 — Foundry and adversarial contract tests
+- [x] M7 — Structured strategy engine + policy simulation
+- [x] M8 — Indexed vault activity + SDK/API layer
+- [x] M9 — Discord signature verification + command registration
+- [x] M10 — Hardened CI, dependency audit and deployment verifier
+- [ ] M16 — Signed Celo Sepolia deployment + explorer verification + real vault transaction
+- [x] M17 — Perp risk engine + UpDown registry + onchain `HorrisPerpPolicy`
+- [x] M17.1 — Unsigned UpDown MarketIncrease compiler
+- [x] M17.2 — Live UpDown fee/oracle/position/order reads
+- [x] M17.3 — Position protection and pending-order risk monitor
+- [x] M17.4 — Stop-loss / take-profit protection compiler
+- [x] M17.5 — Frozen/pending order cancellation compiler
+- [x] M17.6 — Live entry readiness + exact `eth_call` simulation gates
+- [x] M17.7 — Venue-state entry confirmation + protection state machine
+- [ ] M18 — Audited/verified UpDown execution path with policy coupling and explicitly enabled signing
 
-## Perpetual risk layer
+## Celo perpetual layer
 
-Horris is no longer scoped as a stablecoin swap application. The Mento USDC → USDm adapter remains the first hardened execution proof, while the product now has a dedicated perpetual risk layer for Celo.
-
-The current perpetual venue registry targets **UpDown on Celo mainnet** using contract/market data pinned from the public `UpDownDex/skills` repository at commit:
+Horris targets UpDown on Celo mainnet using metadata pinned from the public `UpDownDex/skills` repository at commit:
 
 `33d93fcd5ff0ffb98872dc2964600933f7153052`
 
-Registered markets currently include:
+Supported registry markets:
 
 - BTC / USDT
 - ETH / USDT
@@ -64,152 +64,114 @@ Registered markets currently include:
 - AUDm / USDT
 - GBPm / USDT
 
-UpDown's public agent tooling currently permits a default maximum leverage of up to 100x. Horris intentionally imposes much tighter application-level limits:
+Horris deliberately imposes tighter limits than the venue:
 
-| Horris profile | Max leverage | Max account risk at stop | Max margin utilization | Max notional |
+| Profile | Max leverage | Max account risk at stop | Max margin use | Max notional |
 | --- | ---: | ---: | ---: | ---: |
 | Conservative | 3x | 1% | 20% | $1,000 |
 | Balanced | 5x | 2% | 35% | $5,000 |
 | Aggressive | 10x | 4% | 50% | $10,000 |
 
-The perpetual risk engine checks:
+The risk engine validates leverage, notional, margin use, stop direction, projected loss at stop, gross margin-exhaustion buffer, take-profit direction and reward/risk.
 
-- leverage;
-- notional exposure;
-- stop-loss direction;
-- projected account loss at stop;
-- margin utilization;
-- gross margin-exhaustion buffer;
-- take-profit direction;
-- reward/risk when a take-profit is supplied.
+## Protected execution workflow
 
-`POST /api/perps/analyze` exposes this analysis to the dashboard and future agent interfaces.
+Horris currently implements the full **unsigned** workflow:
 
-### Important execution boundary
+1. user defines perp intent;
+2. Horris risk engine approves or blocks it;
+3. Horris compiles the exact UpDown MarketIncrease parameters;
+4. Horris reads current DataStore execution-fee inputs and Celo gas price;
+5. Horris checks pinned venue bytecode, USDT balance, Router allowance, native CELO balance and fresh UpDown oracle state;
+6. if allowance is already sufficient, Horris `eth_call` simulates the exact `sendWnt → sendTokens → createOrder` multicall;
+7. after a future broadcast, Horris does **not** trust a transaction hash alone: it re-reads UpDown pending orders and live positions;
+8. a pending entry stays `order-pending`;
+9. a live position becomes `protection-required` unless active stop coverage is at least 99.5%;
+10. stop-loss / take-profit previews are compiled only from a fresh live position read;
+11. existing active protection is subtracted so Horris compiles only the uncovered size;
+12. protection triggers are checked against a fresh UpDown oracle price;
+13. exact protection calldata is `eth_call` simulated before it can ever become signable;
+14. frozen stops block further automation;
+15. frozen orders and pending increases can produce a fresh-state unsigned cancellation preview and `eth_call` simulation.
 
-Perpetual execution is deliberately **locked** today. `HorrisPerpPolicy` is a policy guard, not a trading adapter and not a custody contract. A future UpDown adapter must independently reconstruct or verify the normalized values that it submits to the policy contract from the actual venue order, otherwise caller-supplied metrics could not be trusted as an execution authorization boundary.
+UpDown requires protection orders to be created **after** a live position exists. Horris therefore does not claim atomic entry + stop protection.
 
-This keeps Horris fail-closed while the execution adapter is built and reviewed.
+## Deterministic protection phases
 
-## Hardened Mento execution path
+`lib/perp-sequence.ts` exposes these states:
 
-The current Celo testnet execution proof uses Mento USDC → USDm. It is not the final perpetual venue.
+- `awaiting-position`
+- `protection-required`
+- `protected`
+- `review-exposure`
+- `blocked`
 
-The onchain path enforces:
+Every state currently returns `executionAllowed: false`. This is deliberate.
 
-- owner-controlled custody and emergency withdrawal;
+## Main perp APIs
+
+- `POST /api/perps/analyze` — deterministic Horris risk verdict
+- `POST /api/perps/order-preview` — unsigned MarketIncrease + live readiness + optional exact `eth_call`
+- `GET /api/perps/positions` — live UpDown positions
+- `GET /api/perps/orders` — live pending orders
+- `GET /api/perps/risk-state` — positions/orders + Horris protection verdict + state-machine phases
+- `POST /api/perps/protection-preview` — fresh-state stop/TP compilation + live oracle + fee + `eth_call`
+- `POST /api/perps/cancel-preview` — fresh-state cancellation compilation + `eth_call`
+- `GET /api/perps/confirm-entry` — confirm expected entry from actual pending-order/position state
+
+None of these endpoints broadcast an UpDown transaction.
+
+## Hardened Mento testnet path
+
+The first real execution proof remains Mento USDC → USDm on Celo Sepolia. `HorrisPolicyVault` and `HorrisMentoAdapter` enforce:
+
+- owner custody and emergency withdrawal;
 - revocable agent execution;
-- mandatory nonzero per-execution and daily limits;
-- a contract-level absolute slippage ceiling of 5%;
-- minimum output derived from the adapter's current onchain Mento quote;
+- nonzero execution and daily limits;
+- allowlisted assets/adapters;
+- quote-derived onchain slippage checks with a 5% absolute ceiling;
 - actual input/output balance accounting;
-- immutable Mento Router, FPMM factory, USDC and USDm inside the adapter;
-- approved factory on every route hop, 1–3 hops, route continuity and fixed endpoints;
-- exact token approvals that are cleared after execution;
-- pause + reentrancy guards;
-- frontend `eth_call` simulation before signing.
+- immutable Router/factory/token endpoints;
+- 1–3 continuous route hops using the pinned factory;
+- exact approvals cleared after execution;
+- pause and reentrancy protection;
+- frontend simulation before signing.
 
-See [`SECURITY.md`](SECURITY.md) for the trust model and remaining risks.
+Celo Sepolia configuration:
 
-## Celo Sepolia configuration
+- chain ID `11142220`
+- USDC `0x01C5C0122039549AD1493B8220cABEdD739BC44E`
+- USDm `0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b`
+- Mento Router `0xcf6cD45210b3ffE3cA28379C4683F1e60D0C2CCd`
+- Mento FPMM factory `0x353ED52bF8482027C0e0b9e3c0e5d96A9F680980`
 
-- Chain ID: `11142220`
-- USDC: `0x01C5C0122039549AD1493B8220cABEdD739BC44E`
-- USDm: `0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b`
-- Mento v3 Router: `0xcf6cD45210b3ffE3cA28379C4683F1e60D0C2CCd`
-- Mento FPMM Factory: `0x353ED52bF8482027C0e0b9e3c0e5d96A9F680980`
-
-## Web execution modes
-
-Horris fails closed by default:
-
-- if deployed addresses are configured, the stablecoin dashboard uses the Horris vault path;
-- if contracts are not configured, the stablecoin dashboard remains quote-only;
-- wallet-direct execution is disabled unless `NEXT_PUBLIC_ALLOW_WALLET_DIRECT_DEMO=true` is explicitly set for a testnet demo;
-- the perpetual interface performs read-only risk analysis only and cannot submit UpDown orders yet.
-
-When a vault is deployed, the dashboard checks current owner/agent authorization, pause state, accounted USDC, accounting health, execution cap, daily budget and slippage policy before requesting a transaction signature.
-
-## Interfaces
-
-### Strategy API
-
-`POST /api/strategy`
-
-```json
-{ "amount": 50, "balance": 100, "risk": "Balanced" }
-```
-
-Returns a structured stablecoin proposal plus deterministic policy simulation. This endpoint does not custody or execute funds.
-
-### Perpetual risk API
-
-`POST /api/perps/analyze`
-
-```json
-{
-  "market": "BTC",
-  "side": "long",
-  "risk": "Balanced",
-  "marginUsd": 100,
-  "leverage": 3,
-  "accountBalanceUsd": 1000,
-  "entryPrice": 100000,
-  "stopLoss": 98000,
-  "takeProfit": 104000
-}
-```
-
-Returns Horris' risk verdict, policy checks and the pinned UpDown market metadata. `executionEnabled` remains `false` until M18 is completed.
-
-### Discord application layer
-
-`POST /api/discord`
-
-Production Discord interactions require Ed25519 request verification, support Discord PING, and handle `help`, `strategy`, and `risk` application commands. Responses are advisory and do not withdraw funds.
-
-Register commands after securely setting Discord credentials:
-
-```bash
-npm run discord:register
-```
-
-### SDK
-
-`sdk/index.ts` exposes `HorrisClient` for strategy creation, simulation, agent checks, automation decisions, portfolio reads and vault activity.
-
-## Run and validate
+## Validation
 
 ```bash
 npm install
+npm test
 npm run typecheck
 npm run build
+npm run verify:updown
 forge test -vv
 forge build --sizes
 ```
 
-GitHub Actions runs the web typecheck/build and Foundry test/build suites on pushes and pull requests.
+After a signed Horris Sepolia deployment:
 
-## Remaining release gates
+```bash
+npm run verify:deployment
+```
 
-### Testnet execution proof
+GitHub Actions runs dependency auditing, TypeScript tests/typecheck/build and Foundry test/build gates.
 
-1. deploy the tested `HorrisPolicyVault` and `HorrisMentoAdapter` commit from a dedicated funded Celo Sepolia wallet;
-2. record the vault address, adapter address and deployment block in the web environment;
-3. verify the contracts on Celo Sepolia Blockscout;
-4. deposit a small amount of test USDC;
-5. generate the approved Mento route and execute vault → adapter → Mento;
-6. confirm USDC accounting decreases and USDm accounting/balance increases;
-7. withdraw a small amount of USDm to the owner;
-8. capture `ExecutionCompleted`, `SwapExecuted` and explorer transaction links for the demo.
+## Remaining release boundary
 
-### Perpetual execution
+Two external/signing gates remain:
 
-1. independently verify UpDown's current Celo contracts and order semantics from the pinned source and live bytecode;
-2. build a narrow Horris UpDown adapter for supported order types only;
-3. make the adapter derive leverage, notional and risk inputs from the actual order rather than trusting caller-supplied normalized values;
-4. couple the adapter to `HorrisPerpPolicy`;
-5. enforce market allowlists, acceptable-price bounds, leverage, account risk, margin utilization and stop-loss requirements;
-6. add adversarial Foundry integration tests before enabling any mainnet order path.
+1. deploy and verify the hardened Horris vault/Mento adapter on Celo Sepolia and execute the small end-to-end testnet transaction;
+2. do not enable UpDown mainnet signing until a dedicated execution architecture couples actual venue order values to Horris policy and the asynchronous entry → protection failure/recovery path has been independently reviewed and tested.
 
-Never commit or paste a deployer private key into chat, source control, screenshots or public logs.
+See [`SECURITY.md`](SECURITY.md).
+
+Never commit, paste or send a deployer private key, seed phrase, Discord token or other secret through chat or source control.
