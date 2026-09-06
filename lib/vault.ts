@@ -45,10 +45,15 @@ export async function depositUsdc(wallet: WalletClient, account: Address, amount
   return hash;
 }
 
-export async function withdrawUsdc(wallet: WalletClient, account: Address, amount: string) {
+export async function withdrawVaultAsset(wallet: WalletClient, account: Address, amount: string, asset: "USDC" | "USDm") {
   const vault = requireVault();
-  const value = parseUnits(amount, TOKENS.USDC.decimals);
-  const hash = await wallet.writeContract({ account, chain: wallet.chain, address: vault, abi: horrisVaultAbi, functionName: "withdraw", args: [TOKENS.USDC.address, value, account] });
+  const token = asset === "USDC" ? TOKENS.USDC : TOKENS.USDm;
+  const value = parseUnits(amount, token.decimals);
+  const hash = await wallet.writeContract({ account, chain: wallet.chain, address: vault, abi: horrisVaultAbi, functionName: "withdraw", args: [token.address, value, account] });
   await publicClient.waitForTransactionReceipt({ hash });
   return hash;
+}
+
+export async function withdrawUsdc(wallet: WalletClient, account: Address, amount: string) {
+  return withdrawVaultAsset(wallet, account, amount, "USDC");
 }
