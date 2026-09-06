@@ -21,6 +21,7 @@ export type UpDownEntryReadiness = {
   routerAllowance: bigint;
   nativeCeloBalance: bigint;
   requiredExecutionFee: bigint;
+  requiredExecutionFeeCelo: string;
   approvalRequired: boolean;
   readyForSimulation: boolean;
   readyForSubmission: false;
@@ -33,7 +34,7 @@ export async function getUpDownEntryReadiness(account: Address, marketToken: Add
   const client = createPublicClient({ chain: celo, transport: http(RPC, { timeout: 12_000 }) });
   const requiredCode = [UPDOWN_CELO.exchangeRouter, UPDOWN_CELO.router, UPDOWN_CELO.orderVault, UPDOWN_CELO.dataStore] as const;
 
-  const [chainId, usdtBalance, routerAllowance, nativeCeloBalance, fee, oracle, ...codes] = await Promise.all([
+  const results = await Promise.all([
     client.getChainId(),
     client.readContract({ address: USDT, abi: erc20Abi, functionName: "balanceOf", args: [account] }),
     client.readContract({ address: USDT, abi: erc20Abi, functionName: "allowance", args: [account, UPDOWN_CELO.router] }),
@@ -41,7 +42,14 @@ export async function getUpDownEntryReadiness(account: Address, marketToken: Add
     estimateUpDownIncreaseExecutionFee(),
     getUpDownOraclePrice(marketToken),
     ...requiredCode.map((address) => client.getCode({ address })),
-  ]);
+  ] as const);
+  const chainId = results[0] as number;
+  const usdtBalance = results[1] as bigint;
+  const routerAllowance = results[2] as bigint;
+  const nativeCeloBalance = results[3] as bigint;
+  const fee = results[4] as Awaited<ReturnType<typeof estimateUpDownIncreaseExecutionFee>>;
+  const oracle = results[5] as Awaited<ReturnType<typeof getUpDownOraclePrice>>;
+  const codes = results.slice(6) as (`0x${string}` | undefined)[];
 
   if (chainId !== 42220) throw new Error(`UpDown RPC chain mismatch: expected 42220, got ${chainId}`);
   const codeHealthy = codes.every((code) => Boolean(code && code !== "0x"));
@@ -54,7 +62,6 @@ export async function getUpDownEntryReadiness(account: Address, marketToken: Add
     { code: "ORACLE_FRESH", passed: oracle.ageSeconds <= 600, detail: `UpDown oracle age ${oracle.ageSeconds}s; mid ${oracle.mid}.` },
   ];
 
-  // A missing allowance can be fixed by an explicit approval, so it does not invalidate transaction simulation readiness.
   const hardChecks = checks.filter((check) => check.code !== "ROUTER_ALLOWANCE");
   const readyForSimulation = hardChecks.every((check) => check.passed);
   return {
@@ -66,6 +73,7 @@ export async function getUpDownEntryReadiness(account: Address, marketToken: Add
     routerAllowance,
     nativeCeloBalance,
     requiredExecutionFee: fee.bufferedFeeWei,
+    requiredExecutionFeeCelo: fee.bufferedFeeCelo,
     approvalRequired,
     readyForSimulation,
     readyForSubmission: false,
