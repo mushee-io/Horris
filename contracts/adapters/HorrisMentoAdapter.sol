@@ -16,11 +16,12 @@ interface IMentoRouter {
 }
 
 /// @title HorrisMentoAdapter
-/// @notice Narrow adapter that permits a Horris vault to quote and execute one configured Mento v3 token pair.
+/// @notice Narrow adapter that permits a Horris vault to quote and execute one configured Mento v3 token pair through one approved factory.
 /// @dev Unaudited testnet code. Do not use with production funds.
 contract HorrisMentoAdapter {
     address public immutable vault;
     address public immutable router;
+    address public immutable factory;
     address public immutable tokenIn;
     address public immutable tokenOut;
     uint256 private locked = 1;
@@ -30,11 +31,12 @@ contract HorrisMentoAdapter {
     modifier onlyVault() { require(msg.sender == vault, "NOT_VAULT"); _; }
     modifier nonReentrant() { require(locked == 1, "REENTRANT"); locked = 2; _; locked = 1; }
 
-    constructor(address vault_, address router_, address tokenIn_, address tokenOut_) {
-        require(vault_ != address(0) && router_ != address(0) && tokenIn_ != address(0) && tokenOut_ != address(0), "ZERO_ADDRESS");
+    constructor(address vault_, address router_, address factory_, address tokenIn_, address tokenOut_) {
+        require(vault_ != address(0) && router_ != address(0) && factory_ != address(0) && tokenIn_ != address(0) && tokenOut_ != address(0), "ZERO_ADDRESS");
         require(tokenIn_ != tokenOut_, "SAME_TOKEN");
         vault = vault_;
         router = router_;
+        factory = factory_;
         tokenIn = tokenIn_;
         tokenOut = tokenOut_;
     }
@@ -78,7 +80,7 @@ contract HorrisMentoAdapter {
         require(routes[0].from == tokenIn, "BAD_INPUT");
         require(routes[routes.length - 1].to == tokenOut, "BAD_OUTPUT");
         for (uint256 i = 0; i < routes.length; i++) {
-            require(routes[i].factory != address(0), "ZERO_FACTORY");
+            require(routes[i].factory == factory, "UNAPPROVED_FACTORY");
             require(routes[i].from != address(0) && routes[i].to != address(0), "ZERO_ROUTE_ASSET");
             require(routes[i].from != routes[i].to, "SAME_ROUTE_ASSET");
             if (i + 1 < routes.length) require(routes[i].to == routes[i + 1].from, "BROKEN_ROUTE");
