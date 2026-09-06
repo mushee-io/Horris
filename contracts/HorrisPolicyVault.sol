@@ -8,6 +8,7 @@ interface IERC20 {
     function approve(address spender, uint256 amount) external returns (bool);
 }
 interface IHorrisAdapter {
+    function tokenOut() external view returns (address);
     function executeSwap(uint256 amountIn, uint256 amountOutMin, bytes calldata routeData, uint256 deadline) external returns (uint256 amountOut);
 }
 
@@ -36,7 +37,7 @@ contract HorrisPolicyVault {
     event AssetPolicyUpdated(address indexed asset, bool allowed);
     event AdapterPolicyUpdated(address indexed adapter, bool allowed);
     event RiskPolicyUpdated(uint256 maxExecutionAmount, uint256 dailyExecutionLimit, uint16 maxSlippageBps);
-    event ExecutionCompleted(address indexed adapter, address indexed assetIn, uint256 amountIn, uint256 amountOut, uint16 slippageBps);
+    event ExecutionCompleted(address indexed adapter, address indexed assetIn, address indexed assetOut, uint256 amountIn, uint256 amountOut, uint16 slippageBps);
 
     modifier onlyOwner() { require(msg.sender == owner, "NOT_OWNER"); _; }
     modifier onlyAgentOrOwner() { require(msg.sender == agent || msg.sender == owner, "NOT_AUTHORIZED"); _; }
@@ -89,13 +90,22 @@ contract HorrisPolicyVault {
     {
         require(amountOutMin > 0, "ZERO_MIN_OUT");
         _consumePolicy(adapter, assetIn, amountIn, slippageBps, deadline);
+        address assetOut = IHorrisAdapter(adapter).tokenOut();
+        require(assetOut != address(0) && assetOut != assetIn, "BAD_OUTPUT_ASSET");
+        require(allowedAssets[assetOut], "OUTPUT_ASSET_BLOCKED");
+
+        uint256 beforeOut = IERC20(assetOut).balanceOf(address(this));
         require(IERC20(assetIn).approve(adapter, 0), "RESET_APPROVAL_FAILED");
         require(IERC20(assetIn).approve(adapter, amountIn), "APPROVAL_FAILED");
         amountOut = IHorrisAdapter(adapter).executeSwap(amountIn, amountOutMin, routeData, deadline);
         require(IERC20(assetIn).approve(adapter, 0), "CLEAR_APPROVAL_FAILED");
         require(amountOut >= amountOutMin, "MIN_OUT");
+        uint256 receivedOut = IERC20(assetOut).balanceOf(address(this)) - beforeOut;
+        require(receivedOut == amountOut, "OUTPUT_BALANCE_MISMATCH");
+
         depositedByAsset[assetIn] -= amountIn;
-        emit ExecutionCompleted(adapter, assetIn, amountIn, amountOut, slippageBps);
+        depositedByAsset[assetOut] += receivedOut;
+        emit ExecutionCompleted(adapter, assetIn, assetOut, amountIn, receivedOut, slippageBps);
     }
 
     function _consumePolicy(address adapter, address asset, uint256 amount, uint16 slippageBps, uint256 deadline) internal {
