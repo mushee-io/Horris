@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "../contracts/HorisPolicyVault.sol";
+import "../contracts/HorrisPolicyVault.sol";
 
 contract MockToken is IERC20 {
     mapping(address => uint256) public balanceOf;
