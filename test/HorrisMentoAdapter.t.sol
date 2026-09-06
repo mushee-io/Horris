@@ -15,7 +15,7 @@ contract AdapterToken is IERC20Adapter {
 contract MockMentoRouter is IMentoRouter {
     AdapterToken public immutable output;
     constructor(AdapterToken output_) { output = output_; }
-    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, Step[] calldata, address to, uint256) external returns (uint256 amountOut) {
+    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, Route[] calldata, address to, uint256) external returns (uint256 amountOut) {
         amountOut = amountIn;
         require(amountOut >= amountOutMin, "MIN");
         output.mint(to, amountOut);
@@ -43,9 +43,9 @@ contract HorrisMentoAdapterTest {
     }
 
     function route(address assetIn, address assetOut) internal view returns (bytes memory) {
-        IMentoRouter.Step[] memory path = new IMentoRouter.Step[](1);
-        path[0] = IMentoRouter.Step({ exchangeProvider: address(router), exchangeId: bytes32(uint256(1)), assetIn: assetIn, assetOut: assetOut });
-        return abi.encode(path);
+        IMentoRouter.Route[] memory routes = new IMentoRouter.Route[](1);
+        routes[0] = IMentoRouter.Route({ from: assetIn, to: assetOut, factory: address(router) });
+        return abi.encode(routes);
     }
 
     function testSwapReturnsOutputToVault() public {
