@@ -12,8 +12,11 @@ function optionalBlock(value?: string): bigint | undefined {
 export const HORRIS_VAULT = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_VAULT);
 export const HORRIS_MENTO_ADAPTER = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_MENTO_ADAPTER);
 export const HORRIS_DEPLOYMENT_BLOCK = optionalBlock(process.env.NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK);
+export const ALLOW_WALLET_DIRECT_DEMO = process.env.NEXT_PUBLIC_ALLOW_WALLET_DIRECT_DEMO === "true";
 
 export const horrisVaultAbi = [
+  { type: "function", name: "owner", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  { type: "function", name: "agent", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
   { type: "function", name: "deposit", stateMutability: "nonpayable", inputs: [{ name: "asset", type: "address" }, { name: "amount", type: "uint256" }], outputs: [] },
   { type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ name: "asset", type: "address" }, { name: "amount", type: "uint256" }, { name: "recipient", type: "address" }], outputs: [] },
   { type: "function", name: "execute", stateMutability: "nonpayable", inputs: [{ name: "adapter", type: "address" }, { name: "assetIn", type: "address" }, { name: "amountIn", type: "uint256" }, { name: "amountOutMin", type: "uint256" }, { name: "routeData", type: "bytes" }, { name: "deadline", type: "uint256" }], outputs: [{ name: "amountOut", type: "uint256" }] },
