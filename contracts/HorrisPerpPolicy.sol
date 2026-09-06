@@ -10,13 +10,13 @@ contract HorrisPerpPolicy {
     address public agent;
     bool public paused;
 
-    uint16 public constant BPS = 10_000;
-    uint16 public constant ABSOLUTE_MAX_LEVERAGE_BPS = 100_000; // 10x
+    uint32 public constant BPS = 10_000;
+    uint32 public constant ABSOLUTE_MAX_LEVERAGE_BPS = 100_000; // 10x
     uint16 public constant ABSOLUTE_MAX_ACCOUNT_RISK_BPS = 500; // 5%
     uint16 public constant ABSOLUTE_MAX_MARGIN_UTILIZATION_BPS = 5_000; // 50%
 
     struct Limits {
-        uint16 maxLeverageBps; // 10,000 = 1x
+        uint32 maxLeverageBps; // 10,000 = 1x
         uint16 maxAccountRiskBps;
         uint16 maxMarginUtilizationBps;
         uint256 maxNotionalUsdE18;
@@ -27,7 +27,7 @@ contract HorrisPerpPolicy {
         uint256 marginUsdE18;
         uint256 notionalUsdE18;
         uint256 accountBalanceUsdE18;
-        uint16 leverageBps;
+        uint32 leverageBps;
         uint16 stopDistanceBps;
     }
 
@@ -36,7 +36,7 @@ contract HorrisPerpPolicy {
 
     event AgentUpdated(address indexed previousAgent, address indexed newAgent);
     event PausedUpdated(bool paused);
-    event LimitsUpdated(uint16 maxLeverageBps, uint16 maxAccountRiskBps, uint16 maxMarginUtilizationBps, uint256 maxNotionalUsdE18);
+    event LimitsUpdated(uint32 maxLeverageBps, uint16 maxAccountRiskBps, uint16 maxMarginUtilizationBps, uint256 maxNotionalUsdE18);
     event MarketUpdated(bytes32 indexed marketId, bool allowed);
 
     modifier onlyOwner() {
