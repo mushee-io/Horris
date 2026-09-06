@@ -1,4 +1,4 @@
-import { riskPolicy, type HorrisRisk } from "./mento";
+import { riskPolicy, type HorrisRisk } from "./risk-config";
 import type { StrategyProposal } from "./strategy";
 
 export type PolicyCheck = { rule: string; passed: boolean; detail: string };
