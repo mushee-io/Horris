@@ -42,7 +42,7 @@ contract HorrisPolicyVaultTest {
 
     constructor() {
         token = new MockToken(); outputToken = new MockToken();
-        vault = new HorrisPolicyVault(address(this), 100e6, 250e6, 50);
+        vault = new HorrisPolicyVault(address(0), 100e6, 250e6, 50);
         adapter = new MockAdapter(token, outputToken);
         vault.setAllowedAsset(address(token), true); vault.setAllowedAsset(address(outputToken), true); vault.setAllowedAdapter(address(adapter), true);
         token.mint(address(this), 500e6); token.approve(address(vault), type(uint256).max);
@@ -94,10 +94,28 @@ contract HorrisPolicyVaultTest {
     }
 
     function testQuoteChangeIsEnforced() public {
-        vault.deposit(address(token), 100e6);
-        adapter.setQuoteBps(12_000);
+        vault.deposit(address(token), 100e6); adapter.setQuoteBps(12_000);
         (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 50e6, 50e6, bytes(""), block.timestamp + 5 minutes)));
         require(!ok, "minimum should be measured against current adapter quote");
+    }
+
+    function testRiskPolicyCannotDisableLimitsOrExceedAbsoluteSlippage() public {
+        (bool zeroExecution,) = address(vault).call(abi.encodeCall(vault.setRiskPolicy, (0, 250e6, 50)));
+        (bool zeroDaily,) = address(vault).call(abi.encodeCall(vault.setRiskPolicy, (100e6, 0, 50)));
+        (bool capGtDaily,) = address(vault).call(abi.encodeCall(vault.setRiskPolicy, (251e6, 250e6, 50)));
+        (bool highSlippage,) = address(vault).call(abi.encodeCall(vault.setRiskPolicy, (100e6, 250e6, 501)));
+        require(!zeroExecution && !zeroDaily && !capGtDaily && !highSlippage, "unsafe policy accepted");
+    }
+
+    function testCannotAllowlistEOAAddresses() public {
+        (bool assetOk,) = address(vault).call(abi.encodeCall(vault.setAllowedAsset, (address(0xBEEF), true)));
+        (bool adapterOk,) = address(vault).call(abi.encodeCall(vault.setAllowedAdapter, (address(0xCAFE), true)));
+        require(!assetOk && !adapterOk, "EOA allowlist should fail");
+    }
+
+    function testOwnerCannotBeConfiguredAsAgent() public {
+        (bool ok,) = address(vault).call(abi.encodeCall(vault.setAgent, (address(this))));
+        require(!ok, "owner should not be redundant agent");
     }
 
     function testRejectsLongDeadline() public {
@@ -107,8 +125,7 @@ contract HorrisPolicyVaultTest {
     }
 
     function testBlockedAdapterReverts() public {
-        MockAdapter blocked = new MockAdapter(token, outputToken);
-        vault.deposit(address(token), 100e6);
+        MockAdapter blocked = new MockAdapter(token, outputToken); vault.deposit(address(token), 100e6);
         (bool ok,) = address(vault).call(abi.encodeCall(vault.execute, (address(blocked), address(token), 50e6, 49_750_000, bytes(""), block.timestamp + 5 minutes)));
         require(!ok, "blocked adapter should revert");
     }
@@ -125,10 +142,12 @@ contract HorrisPolicyVaultTest {
         vault.revokeAgent(); require(!caller.execute(vault, address(adapter), address(token), 10e6), "revoked agent should fail");
     }
 
-    function testPauseBlocksDepositAndExecution() public {
+    function testPauseBlocksDepositAndExecutionButAllowsEmergencyWithdraw() public {
         vault.deposit(address(token), 100e6); vault.setPaused(true);
         (bool depositOk,) = address(vault).call(abi.encodeCall(vault.deposit, (address(token), 10e6)));
         (bool executeOk,) = address(vault).call(abi.encodeCall(vault.execute, (address(adapter), address(token), 10e6, 9_950_000, bytes(""), block.timestamp + 5 minutes)));
         require(!depositOk, "paused deposit should revert"); require(!executeOk, "paused execution should revert");
+        vault.withdraw(address(token), 10e6, address(this));
+        require(vault.depositedByAsset(address(token)) == 90e6, "paused emergency withdrawal failed");
     }
 }
