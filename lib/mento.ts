@@ -1,7 +1,7 @@
 import { Mento, deadlineFromMinutes } from "@mento-protocol/mento-sdk";
 import { encodeAbiParameters, formatUnits, parseUnits, type Address, type Hex } from "viem";
 import { celoSepolia } from "viem/chains";
-import { CELO_SEPOLIA_RPC, TOKENS } from "./celo";
+import { CELO_SEPOLIA_RPC, MENTO_FPMM_FACTORY, TOKENS } from "./celo";
 
 export type HorrisRisk = "Conservative" | "Balanced" | "Aggressive";
 
@@ -48,6 +48,10 @@ export async function buildVaultUsdMPlan(amount: string, risk: HorrisRisk) {
   });
 
   if (!prepared.routerRoutes.length || prepared.routerRoutes.length > 3) throw new Error("Unsupported Mento route length");
+  if (prepared.routerRoutes.some((route) => route.factory.toLowerCase() !== MENTO_FPMM_FACTORY.toLowerCase())) {
+    throw new Error("Mento returned a route outside the Horris approved factory");
+  }
+
   const routeData = encodeAbiParameters(
     [{ type: "tuple[]", components: [{ name: "from", type: "address" }, { name: "to", type: "address" }, { name: "factory", type: "address" }] }],
     [prepared.routerRoutes.map((route) => ({ from: route.from, to: route.to, factory: route.factory }))],
