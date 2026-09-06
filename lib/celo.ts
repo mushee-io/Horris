@@ -20,6 +20,7 @@ export const TOKENS = {
 } as const;
 
 export const MENTO_ROUTER = "0xcf6cD45210b3ffE3cA28379C4683F1e60D0C2CCd" as Address;
+export const MENTO_FPMM_FACTORY = "0x353ED52bF8482027C0e0b9e3c0e5d96A9F680980" as Address;
 
 export const publicClient = createPublicClient({
   chain: celoSepolia,
