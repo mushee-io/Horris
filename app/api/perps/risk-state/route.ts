@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAddress, type Address } from "viem";
 import { analyzePerpRiskState } from "../../../../lib/perp-monitor";
+import { derivePerpProtectionSequence } from "../../../../lib/perp-sequence";
 import type { PerpRiskProfile } from "../../../../lib/perps";
 import { getUpDownOrders } from "../../../../lib/updown-orders";
 import { getUpDownPositions } from "../../../../lib/updown-positions";
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest) {
       getUpDownOrders(account as Address),
     ]);
     const riskState = analyzePerpRiskState(positions, orders, riskParam as PerpRiskProfile);
+    const sequences = positions.map((position) => derivePerpProtectionSequence(position.marketToken, position.side, positions, orders));
 
     return json({
       venue: "UpDown",
@@ -31,6 +33,7 @@ export async function GET(request: NextRequest) {
       positions,
       orders,
       riskState,
+      sequences,
       readOnly: true,
       executionEnabled: false,
     });
