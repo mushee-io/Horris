@@ -17,6 +17,8 @@ interface IHorrisAdapter {
 /// @notice User-controlled vault with hard execution policies for Horris agents.
 /// @dev Unaudited testnet code. Do not use with production funds.
 contract HorrisPolicyVault {
+    uint16 public constant ABSOLUTE_MAX_SLIPPAGE_BPS = 500;
+
     address public immutable owner;
     address public agent;
     bool public paused;
@@ -46,8 +48,8 @@ contract HorrisPolicyVault {
     modifier nonReentrant() { require(locked == 1, "REENTRANT"); locked = 2; _; locked = 1; }
 
     constructor(address initialAgent, uint256 initialMaxExecution, uint256 initialDailyLimit, uint16 initialMaxSlippageBps) {
-        require(initialMaxSlippageBps <= 2_000, "SLIPPAGE_TOO_HIGH");
-        require(initialMaxExecution <= initialDailyLimit || initialDailyLimit == 0, "CAP_GT_DAILY");
+        require(initialAgent == address(0) || initialAgent != msg.sender, "OWNER_IS_AGENT");
+        _validateRiskPolicy(initialMaxExecution, initialDailyLimit, initialMaxSlippageBps);
         owner = msg.sender;
         agent = initialAgent;
         maxExecutionAmount = initialMaxExecution;
@@ -56,15 +58,31 @@ contract HorrisPolicyVault {
         spendingDay = uint64(block.timestamp / 1 days);
     }
 
-    function setAgent(address newAgent) external onlyOwner { require(newAgent != owner, "OWNER_IS_AGENT"); agent = newAgent; emit AgentUpdated(newAgent); }
+    function setAgent(address newAgent) external onlyOwner {
+        require(newAgent != owner, "OWNER_IS_AGENT");
+        agent = newAgent;
+        emit AgentUpdated(newAgent);
+    }
+
     function revokeAgent() external onlyOwner { agent = address(0); emit AgentUpdated(address(0)); }
     function setPaused(bool value) external onlyOwner { paused = value; emit PauseUpdated(value); }
-    function setAllowedAsset(address asset, bool allowed) external onlyOwner { require(asset != address(0), "ZERO_ASSET"); allowedAssets[asset] = allowed; emit AssetPolicyUpdated(asset, allowed); }
-    function setAllowedAdapter(address adapter, bool allowed) external onlyOwner { require(adapter != address(0), "ZERO_ADAPTER"); allowedAdapters[adapter] = allowed; emit AdapterPolicyUpdated(adapter, allowed); }
+
+    function setAllowedAsset(address asset, bool allowed) external onlyOwner {
+        require(asset != address(0), "ZERO_ASSET");
+        if (allowed) require(asset.code.length > 0, "ASSET_NOT_CONTRACT");
+        allowedAssets[asset] = allowed;
+        emit AssetPolicyUpdated(asset, allowed);
+    }
+
+    function setAllowedAdapter(address adapter, bool allowed) external onlyOwner {
+        require(adapter != address(0), "ZERO_ADAPTER");
+        if (allowed) require(adapter.code.length > 0, "ADAPTER_NOT_CONTRACT");
+        allowedAdapters[adapter] = allowed;
+        emit AdapterPolicyUpdated(adapter, allowed);
+    }
 
     function setRiskPolicy(uint256 executionCap, uint256 dailyLimit, uint16 slippageCapBps) external onlyOwner {
-        require(slippageCapBps <= 2_000, "SLIPPAGE_TOO_HIGH");
-        require(executionCap <= dailyLimit || dailyLimit == 0, "CAP_GT_DAILY");
+        _validateRiskPolicy(executionCap, dailyLimit, slippageCapBps);
         maxExecutionAmount = executionCap;
         dailyExecutionLimit = dailyLimit;
         maxSlippageBps = slippageCapBps;
@@ -103,6 +121,13 @@ contract HorrisPolicyVault {
         depositedByAsset[assetIn] -= amountIn;
         depositedByAsset[assetOut] += amountOut;
         emit ExecutionCompleted(adapter, assetIn, assetOut, amountIn, amountOut, effectiveSlippageBps);
+    }
+
+    function _validateRiskPolicy(uint256 executionCap, uint256 dailyLimit, uint16 slippageCapBps) internal pure {
+        require(executionCap > 0, "ZERO_EXECUTION_CAP");
+        require(dailyLimit > 0, "ZERO_DAILY_LIMIT");
+        require(executionCap <= dailyLimit, "CAP_GT_DAILY");
+        require(slippageCapBps <= ABSOLUTE_MAX_SLIPPAGE_BPS, "SLIPPAGE_TOO_HIGH");
     }
 
     function _validatedOutputAsset(address adapter, address assetIn) internal view returns (address assetOut) {
@@ -148,10 +173,10 @@ contract HorrisPolicyVault {
         require(allowedAssets[asset], "ASSET_BLOCKED");
         require(amount > 0 && amount <= depositedByAsset[asset], "BAD_AMOUNT");
         require(deadline >= block.timestamp && deadline <= block.timestamp + 30 minutes, "BAD_DEADLINE");
-        require(maxExecutionAmount == 0 || amount <= maxExecutionAmount, "EXECUTION_CAP");
+        require(amount <= maxExecutionAmount, "EXECUTION_CAP");
         uint64 today = uint64(block.timestamp / 1 days);
         if (today != spendingDay) { spendingDay = today; spentToday = 0; }
-        require(dailyExecutionLimit == 0 || spentToday + amount <= dailyExecutionLimit, "DAILY_CAP");
+        require(spentToday + amount <= dailyExecutionLimit, "DAILY_CAP");
         spentToday += amount;
     }
 
