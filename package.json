@@ -1,0 +1,31 @@
+{
+  "name": "horris",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "discord:register": "node scripts/register-discord.mjs",
+    "verify:deployment": "node scripts/verify-deployment.mjs",
+    "verify:updown": "node scripts/verify-updown.mjs",
+    "verify:perp-guard": "node scripts/verify-perp-guard.mjs"
+  },
+  "dependencies": {
+    "@mento-protocol/mento-sdk": "3.4.0",
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tweetnacl": "1.0.3",
+    "viem": "2.56.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.0"
+  }
+}
