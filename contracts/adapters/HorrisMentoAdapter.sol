@@ -9,13 +9,13 @@ interface IERC20Adapter {
 }
 
 interface IMentoRouter {
-    struct Step { address exchangeProvider; bytes32 exchangeId; address assetIn; address assetOut; }
-    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, Step[] calldata path, address to, uint256 deadline)
+    struct Route { address from; address to; address factory; }
+    function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, Route[] calldata routes, address recipient, uint256 deadline)
         external returns (uint256 amountOut);
 }
 
 /// @title HorrisMentoAdapter
-/// @notice Narrow adapter that permits a Horris vault to execute one configured Mento token pair.
+/// @notice Narrow adapter that permits a Horris vault to execute one configured Mento v3 token pair.
 contract HorrisMentoAdapter {
     address public immutable vault;
     address public immutable router;
@@ -45,14 +45,15 @@ contract HorrisMentoAdapter {
         require(deadline >= block.timestamp, "EXPIRED");
         require(deadline <= block.timestamp + 30 minutes, "DEADLINE_TOO_LONG");
 
-        IMentoRouter.Step[] memory path = abi.decode(routeData, (IMentoRouter.Step[]));
-        require(path.length > 0 && path.length <= 4, "BAD_PATH_LENGTH");
-        require(path[0].assetIn == tokenIn, "BAD_INPUT");
-        require(path[path.length - 1].assetOut == tokenOut, "BAD_OUTPUT");
-        for (uint256 i = 0; i < path.length; i++) {
-            require(path[i].exchangeProvider != address(0), "ZERO_PROVIDER");
-            require(path[i].assetIn != address(0) && path[i].assetOut != address(0), "ZERO_ROUTE_ASSET");
-            if (i + 1 < path.length) require(path[i].assetOut == path[i + 1].assetIn, "BROKEN_PATH");
+        IMentoRouter.Route[] memory routes = abi.decode(routeData, (IMentoRouter.Route[]));
+        require(routes.length > 0 && routes.length <= 3, "BAD_ROUTE_LENGTH");
+        require(routes[0].from == tokenIn, "BAD_INPUT");
+        require(routes[routes.length - 1].to == tokenOut, "BAD_OUTPUT");
+        for (uint256 i = 0; i < routes.length; i++) {
+            require(routes[i].factory != address(0), "ZERO_FACTORY");
+            require(routes[i].from != address(0) && routes[i].to != address(0), "ZERO_ROUTE_ASSET");
+            require(routes[i].from != routes[i].to, "SAME_ROUTE_ASSET");
+            if (i + 1 < routes.length) require(routes[i].to == routes[i + 1].from, "BROKEN_ROUTE");
         }
 
         require(IERC20Adapter(tokenIn).transferFrom(vault, address(this), amountIn), "PULL_FAILED");
@@ -60,7 +61,7 @@ contract HorrisMentoAdapter {
         require(IERC20Adapter(tokenIn).approve(router, amountIn), "APPROVAL_FAILED");
 
         uint256 beforeOut = IERC20Adapter(tokenOut).balanceOf(address(this));
-        IMentoRouter(router).swapExactTokensForTokens(amountIn, amountOutMin, path, address(this), deadline);
+        IMentoRouter(router).swapExactTokensForTokens(amountIn, amountOutMin, routes, address(this), deadline);
         require(IERC20Adapter(tokenIn).approve(router, 0), "CLEAR_APPROVAL_FAILED");
 
         amountOut = IERC20Adapter(tokenOut).balanceOf(address(this)) - beforeOut;
