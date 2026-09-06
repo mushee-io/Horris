@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "../contracts/HorisPolicyVault.sol";
+import "../contracts/HorrisPolicyVault.sol";
 import "../contracts/adapters/HorrisMentoAdapter.sol";
 
 interface Vm {
@@ -21,17 +21,9 @@ contract DeployHorris {
     function run() external returns (HorrisPolicyVault vault, HorrisMentoAdapter adapter) {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address agent = vm.envAddress("HORRIS_AGENT");
-
-        // USDC has 6 decimals. Initial Balanced policy:
-        // 1,000 USDC max execution, 2,500 USDC daily, 0.50% slippage.
         vm.startBroadcast(deployerKey);
         vault = new HorrisPolicyVault(agent, 1_000e6, 2_500e6, 50);
-        adapter = new HorrisMentoAdapter(
-            address(vault),
-            MENTO_ROUTER,
-            CELO_SEPOLIA_USDC,
-            CELO_SEPOLIA_USDM
-        );
+        adapter = new HorrisMentoAdapter(address(vault), MENTO_ROUTER, CELO_SEPOLIA_USDC, CELO_SEPOLIA_USDM);
         vault.setAllowedAsset(CELO_SEPOLIA_USDC, true);
         vault.setAllowedAsset(CELO_SEPOLIA_USDM, true);
         vault.setAllowedAdapter(address(adapter), true);
