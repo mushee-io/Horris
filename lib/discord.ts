@@ -32,7 +32,7 @@ export function isPerpSide(value: unknown): value is PerpSide {
 
 export function handleDiscordCommand(command: DiscordCommand) {
   if (command.name === "help") {
-    return { content: "Horris commands: /strategy, /risk, and /perp-risk. Discord is analysis-only; signing and execution remain disabled." };
+    return { content: "Horris commands: /strategy, /risk, /perp-risk, and /perp-status. Discord is analysis/read-only; signing and execution remain disabled." };
   }
 
   if (command.name === "perp-risk") {
