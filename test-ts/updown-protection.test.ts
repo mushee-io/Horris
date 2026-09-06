@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseUnits } from "viem";
 import { encodeUnsignedUpDownProtectionMulticall } from "../lib/updown-calldata";
 import { buildUnsignedUpDownProtectionPlan } from "../lib/updown-protection";
 import { UPDOWN_CELO, UPDOWN_MARKETS } from "../lib/updown";
@@ -27,8 +28,17 @@ describe("Horris UpDown protection compiler", () => {
     expect(plan.params.addresses.market).toBe(btc.marketToken);
     expect(plan.params.addresses.initialCollateralToken).toBe(position.collateralToken);
     expect(plan.params.numbers.initialCollateralDeltaAmount).toBe(0n);
+    expect(plan.params.numbers.sizeDeltaUsd).toBe(parseUnits("300", 30));
+    expect(plan.human.positionSizeUsd).toBe(300);
     expect(plan.human.sizeUsd).toBe(300);
     expect(plan.human.acceptablePrice).toBeCloseTo(97_020);
+  });
+
+  it("can compile only the uncovered part of a partially protected position", () => {
+    const plan = buildUnsignedUpDownProtectionPlan(position, receiver, "stop-loss", 98_000, 100, 120);
+    expect(plan.params.numbers.sizeDeltaUsd).toBe(parseUnits("120", 30));
+    expect(plan.human.positionSizeUsd).toBe(300);
+    expect(plan.human.sizeUsd).toBe(120);
   });
 
   it("compiles a TakeProfitDecrease with the same position size", () => {
@@ -43,9 +53,11 @@ describe("Horris UpDown protection compiler", () => {
     expect(plan.human.acceptablePrice).toBeCloseTo(103_020);
   });
 
-  it("rejects an empty position and excessive protection slippage", () => {
+  it("rejects empty, oversized and unsafe protection plans", () => {
     expect(() => buildUnsignedUpDownProtectionPlan({ ...position, sizeUsd: "0" }, receiver, "stop-loss", 98_000)).toThrow("live non-zero position");
     expect(() => buildUnsignedUpDownProtectionPlan(position, receiver, "stop-loss", 98_000, 301)).toThrow("between 1 and 300 bps");
+    expect(() => buildUnsignedUpDownProtectionPlan(position, receiver, "stop-loss", 98_000, 100, 301)).toThrow("cannot exceed the live position size");
+    expect(() => buildUnsignedUpDownProtectionPlan(position, receiver, "stop-loss", 98_000, 100, 0)).toThrow("must be positive");
   });
 
   it("encodes only sendWnt + createOrder and requires no token approval", () => {
