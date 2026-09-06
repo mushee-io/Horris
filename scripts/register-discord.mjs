@@ -47,6 +47,13 @@ const commands = [
       { name: "risk", description: "Horris risk profile", type: 3, required: true, choices: riskChoices },
     ],
   },
+  {
+    name: "perp-status",
+    description: "Read live UpDown positions and Horris protection status",
+    options: [
+      { name: "account", description: "Celo wallet address", type: 3, required: true },
+    ],
+  },
 ];
 
 const base = `https://discord.com/api/v10/applications/${applicationId}`;
