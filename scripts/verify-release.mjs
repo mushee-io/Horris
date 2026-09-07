@@ -8,10 +8,12 @@ const required = [
   "app/api/perps/order-preview/route.ts",
   "app/api/perps/protection-preview/route.ts",
   "app/api/perps/risk-state/route.ts",
+  "app/erc8004/page.tsx",
   "components/HorrisAiDock.tsx",
   "lib/http-safety.ts",
   "lib/runtime-config.ts",
   "lib/horris-contracts.ts",
+  "lib/erc8004.ts",
   "lib/groq-perp-advisor.ts",
   "lib/perp-advisor.ts",
   "lib/perp-ai-boundary.ts",
@@ -19,6 +21,8 @@ const required = [
   "lib/perp-lifecycle.ts",
   "lib/perp-monitor.ts",
   "lib/updown-capabilities.ts",
+  "public/.well-known/agent-registration.json",
+  "public/horris-agent.svg",
   "docs/DEPLOYMENT.md",
   ".env.example",
   "next.config.ts",
@@ -76,6 +80,27 @@ const aiDock = fs.readFileSync(path.join(root, "components/HorrisAiDock.tsx"), "
 if (!aiDock.includes("/api/perps/advisor")) failures.push("dashboard AI dock must use the hardened Horris advisor endpoint");
 if (!/execution locked/i.test(aiDock)) failures.push("dashboard AI dock must visibly keep execution locked");
 
+const erc8004 = fs.readFileSync(path.join(root, "lib/erc8004.ts"), "utf8");
+const erc8004Page = fs.readFileSync(path.join(root, "app/erc8004/page.tsx"), "utf8");
+if (!erc8004.includes("42220") || !erc8004.includes("0x8004A169FB4a3325136EB29fA0ceB6D2e539a432")) failures.push("ERC-8004 must remain pinned to the Celo mainnet Identity Registry");
+if (!erc8004.includes("https://horris-delta.vercel.app/.well-known/agent-registration.json")) failures.push("ERC-8004 agent URI must remain pinned to the canonical Horris registration file");
+if (!erc8004Page.includes("simulateContract") || !erc8004Page.includes("writeContract") || !erc8004Page.includes("waitForTransactionReceipt")) failures.push("ERC-8004 registration must simulate before explicit wallet submission and wait for confirmation");
+if (!erc8004Page.includes("getBytecode") || !erc8004Page.includes('eventName: "Registered"')) failures.push("ERC-8004 registration must verify registry bytecode and the Registered event");
+if (/privateKey|seedPhrase|mnemonic/.test(erc8004Page)) failures.push("ERC-8004 browser registration must never request or embed wallet secrets");
+
+let agentRegistration;
+try {
+  agentRegistration = JSON.parse(fs.readFileSync(path.join(root, "public/.well-known/agent-registration.json"), "utf8"));
+} catch {
+  failures.push("ERC-8004 agent registration metadata must be valid JSON");
+}
+if (agentRegistration) {
+  if (agentRegistration.type !== "https://eips.ethereum.org/EIPS/eip-8004#registration-v1") failures.push("ERC-8004 registration metadata type is invalid");
+  if (agentRegistration.name !== "Horris" || agentRegistration.active !== true) failures.push("ERC-8004 metadata must identify active Horris");
+  if (!Array.isArray(agentRegistration.services) || !agentRegistration.services.some((service) => service?.name === "web" && service?.endpoint === "https://horris-delta.vercel.app/")) failures.push("ERC-8004 metadata must advertise the canonical Horris web service");
+  if (!Array.isArray(agentRegistration.registrations)) failures.push("ERC-8004 metadata must expose the registrations list");
+}
+
 const nextConfig = fs.readFileSync(path.join(root, "next.config.ts"), "utf8");
 for (const directive of ["Content-Security-Policy", "frame-ancestors 'none'", "object-src 'none'", "Strict-Transport-Security", "X-Frame-Options", "Referrer-Policy"]) {
   if (!nextConfig.includes(directive)) failures.push(`security header missing: ${directive}`);
@@ -86,4 +111,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log("Horris release gate passed: deployment pinned, public config fail-closed, AI server-only/non-executable and qualitative, numeric risk math policy-authoritative, micro-balances bounded, anti-abuse limits active, CSP/security headers enforced, UpDown broadcast locked, protection freeze wired, and Vercel readiness observable.");
+console.log("Horris release gate passed: deployment pinned, public config fail-closed, AI server-only/non-executable and qualitative, numeric risk math policy-authoritative, micro-balances bounded, anti-abuse limits active, ERC-8004 identity registration pinned/simulated/wallet-owned, CSP/security headers enforced, UpDown broadcast locked, protection freeze wired, and Vercel readiness observable.");
