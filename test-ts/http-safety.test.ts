@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { checkBurstRateLimit, HttpRequestSafetyError, isCrossSiteBrowserRequest, readBoundedJson, resetHttpSafetyStateForTests } from "../lib/http-safety";
+import { checkBurstRateLimit, isCrossSiteBrowserRequest, readBoundedJson, resetHttpSafetyStateForTests } from "../lib/http-safety";
 
 afterEach(() => resetHttpSafetyStateForTests());
 
@@ -11,12 +11,12 @@ describe("HTTP safety helpers", () => {
 
   it("rejects oversized streamed bodies even without Content-Length", async () => {
     const request = new Request("https://horris.test/api", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ data: "x".repeat(300) }) });
-    await expect(readBoundedJson(request, 64)).rejects.toMatchObject<HttpRequestSafetyError>({ status: 413, code: "REQUEST_BODY_TOO_LARGE" });
+    await expect(readBoundedJson(request, 64)).rejects.toMatchObject({ status: 413, code: "REQUEST_BODY_TOO_LARGE" });
   });
 
   it("rejects non-JSON content types", async () => {
     const request = new Request("https://horris.test/api", { method: "POST", headers: { "content-type": "text/plain" }, body: "{}" });
-    await expect(readBoundedJson(request, 1024)).rejects.toMatchObject<HttpRequestSafetyError>({ status: 415, code: "UNSUPPORTED_MEDIA_TYPE" });
+    await expect(readBoundedJson(request, 1024)).rejects.toMatchObject({ status: 415, code: "UNSUPPORTED_MEDIA_TYPE" });
   });
 
   it("detects cross-site browser requests", () => {
