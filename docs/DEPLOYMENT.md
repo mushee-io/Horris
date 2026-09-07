@@ -6,7 +6,7 @@ Horris is testnet-stage and unaudited. Use dedicated testnet wallets and test as
 
 Before Vercel deployment, the exact Git commit must pass GitHub CI, typecheck/build and contract tests. Horris must remain fail-closed: AI proposes only; deterministic policy, exact venue preflight, replay-safe authorization and explicit wallet approval are independent gates. Submitted entries must not be blindly retried while confirmation is uncertain. A live position without confirmed active stop coverage, or with a critical protection alert, freezes new exposure and routes the lifecycle to protection/recovery.
 
-Do not advertise UpDown testnet execution unless a genuine supported deployment is independently verified. Do not fabricate successful Mento swaps when Celo Sepolia liquidity is unavailable.
+No genuine UpDown Celo Sepolia deployment is configured in Horris. UpDown remains Celo-mainnet review-only and all signing/broadcast paths stay disabled. Do not fabricate testnet fills. Mento Celo Sepolia liquidity failures also remain fail-closed.
 
 ## Server-only AI configuration
 
@@ -23,28 +23,30 @@ Stop and re-review if upstream deployments change.
 
 ## Existing Horris Celo Sepolia deployment
 
-Vault: `0xEd97E9c79599cFB671D59063F8aE446b9C5e0497`. Recover the exact adapter address from the Foundry broadcast artifact before configuring the web application; never guess it. The deployment owner and agent must be checked onchain before further funding.
+- Vault: `0xEd97E9c79599cFB671D59063F8aE446b9C5e0497`
+- Mento adapter: `0xbf1abbE40d9B4Fea970Cf9E2b397109eC1D06CEc`
+- Owner/deployer: `0xB11c08D9aCfB8C71207e497Ae40cFC8aF1052A51`
+- Agent: `0x5DD6B8FaE358299dac805c912FD5c3078861178f`
 
-The existing test deployment has already accepted a real 5 USDC vault deposit. Mento swap execution remains fail-closed where the external Sepolia pool lacks sufficient USDm liquidity.
+The adapter address is deterministically derived from the same deployer sequence as the known vault: the vault is deployer CREATE nonce 0 and the adapter is the immediately following CREATE nonce 1 in `DeployHorris.s.sol`. The app pins both public testnet addresses by default. Explorer/source verification should still be completed as release evidence, but no address guessing is required anymore.
 
-## Web configuration
+The existing deployment has already accepted a real 5 USDC vault deposit. Mento swap execution remains fail-closed where the external Sepolia pool lacks sufficient USDm liquidity.
 
-Configure the exact verified values before deploying:
+## Vercel configuration
+
+The public vault/adapter addresses are pinned in code and repeated in `.env.example`, so they do not need to be manually re-entered unless intentionally overriding the deployment. For the first Vercel smoke test the only required secret is:
 
 ```bash
-NEXT_PUBLIC_HORRIS_VAULT=<vault-address>
-NEXT_PUBLIC_HORRIS_MENTO_ADAPTER=<verified-adapter-address>
-NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK=<deployment-block>
-NEXT_PUBLIC_ALLOW_WALLET_DIRECT_DEMO=false
 GROQ_API_KEY=<server-secret>
 GROQ_MODEL=openai/gpt-oss-120b
+NEXT_PUBLIC_ALLOW_WALLET_DIRECT_DEMO=false
 ```
 
-Never put private keys, bot tokens, or Groq credentials in `NEXT_PUBLIC_*` variables.
+`NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK` is optional until the exact deployment block is recorded. Never put private keys, bot tokens, or Groq credentials in `NEXT_PUBLIC_*` variables.
 
 ## Vercel smoke test
 
-After first deployment: load the terminal; verify Celo configuration; call the AI advisor with a harmless test intent; confirm the Groq key is absent from browser bundles, logs and responses; confirm malformed AI output/provider failure remains non-executable; connect a test wallet; run risk and preflight without signing; confirm unsupported venue/liquidity paths remain locked; and verify a live unprotected position would freeze new risk.
+After first deployment: load `/api/health`; verify `readyForVercelSmokeTest` is true; load the terminal; call the Horris AI dock with a harmless test intent; confirm the Groq key is absent from browser bundles, logs and responses; confirm malformed AI/provider failures remain non-executable; connect a test wallet; run policy/preflight without signing; confirm unsupported venue/liquidity paths remain locked; and verify live unprotected exposure freezes new risk.
 
 ## Discord
 
