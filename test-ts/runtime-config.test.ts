@@ -2,13 +2,22 @@ import { describe, expect, it } from "vitest";
 import { getHorrisRuntimeReadiness } from "../lib/runtime-config";
 
 describe("Horris runtime readiness", () => {
-  it("fails the Vercel smoke-test gate without server AI and deployed contract config", () => {
+  it("keeps the Vercel smoke-test gate closed without the server AI secret", () => {
     const state = getHorrisRuntimeReadiness({ NODE_ENV: "test" } as NodeJS.ProcessEnv);
     expect(state.readyForVercelSmokeTest).toBe(false);
     expect(state.aiConfigured).toBe(false);
+    expect(state.vaultConfigured).toBe(true);
+    expect(state.mentoAdapterConfigured).toBe(true);
   });
 
-  it("becomes smoke-test ready with server AI, vault and adapter configuration", () => {
+  it("becomes smoke-test ready with the server AI secret and pinned deployment defaults", () => {
+    const state = getHorrisRuntimeReadiness({ NODE_ENV: "test", GROQ_API_KEY: "test-only" } as NodeJS.ProcessEnv);
+    expect(state.readyForVercelSmokeTest).toBe(true);
+    expect(state.celoSepoliaRpcConfigured).toBe(true);
+    expect(state.celoMainnetRpcConfigured).toBe(true);
+  });
+
+  it("accepts valid explicit deployment overrides", () => {
     const state = getHorrisRuntimeReadiness({
       NODE_ENV: "test",
       GROQ_API_KEY: "test-only",
@@ -16,11 +25,9 @@ describe("Horris runtime readiness", () => {
       NEXT_PUBLIC_HORRIS_MENTO_ADAPTER: "0x2222222222222222222222222222222222222222",
     } as NodeJS.ProcessEnv);
     expect(state.readyForVercelSmokeTest).toBe(true);
-    expect(state.celoSepoliaRpcConfigured).toBe(true);
-    expect(state.celoMainnetRpcConfigured).toBe(true);
   });
 
-  it("rejects malformed contract addresses even when they are non-empty", () => {
+  it("rejects malformed explicit contract overrides instead of silently using defaults", () => {
     const state = getHorrisRuntimeReadiness({
       NODE_ENV: "test",
       GROQ_API_KEY: "test-only",
