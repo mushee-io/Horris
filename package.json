@@ -11,7 +11,8 @@
     "discord:register": "node scripts/register-discord.mjs",
     "verify:deployment": "node scripts/verify-deployment.mjs",
     "verify:updown": "node scripts/verify-updown.mjs",
-    "verify:perp-guard": "node scripts/verify-perp-guard.mjs"
+    "verify:perp-guard": "node scripts/verify-perp-guard.mjs",
+    "verify:release": "node scripts/verify-release.mjs"
   },
   "dependencies": {
     "@mento-protocol/mento-sdk": "3.4.0",
