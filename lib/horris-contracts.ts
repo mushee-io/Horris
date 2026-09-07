@@ -1,7 +1,15 @@
 import type { Address } from "viem";
 
 function optionalAddress(value?: string): Address | undefined {
-  return value?.startsWith("0x") && value.length === 42 ? value as Address : undefined;
+  const trimmed = value?.trim();
+  return trimmed && /^0x[0-9a-fA-F]{40}$/.test(trimmed) ? trimmed as Address : undefined;
+}
+
+function configuredAddress(value: string | undefined, fallback: Address, name: string): Address {
+  if (value === undefined || value.trim() === "") return fallback;
+  const parsed = optionalAddress(value);
+  if (!parsed) throw new Error(`${name} must be a valid 20-byte EVM address`);
+  return parsed;
 }
 
 function optionalBlock(value?: string): bigint | undefined {
@@ -14,8 +22,8 @@ function optionalBlock(value?: string): bigint | undefined {
 export const DEFAULT_HORRIS_VAULT = "0xEd97E9c79599CFB671D59063F8aE446b9C5e0497" as Address;
 export const DEFAULT_HORRIS_MENTO_ADAPTER = "0xbf1abbE40d9B4Fea970Cf9E2b397109eC1D06CEc" as Address;
 
-export const HORRIS_VAULT = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_VAULT) ?? DEFAULT_HORRIS_VAULT;
-export const HORRIS_MENTO_ADAPTER = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_MENTO_ADAPTER) ?? DEFAULT_HORRIS_MENTO_ADAPTER;
+export const HORRIS_VAULT = configuredAddress(process.env.NEXT_PUBLIC_HORRIS_VAULT, DEFAULT_HORRIS_VAULT, "NEXT_PUBLIC_HORRIS_VAULT");
+export const HORRIS_MENTO_ADAPTER = configuredAddress(process.env.NEXT_PUBLIC_HORRIS_MENTO_ADAPTER, DEFAULT_HORRIS_MENTO_ADAPTER, "NEXT_PUBLIC_HORRIS_MENTO_ADAPTER");
 export const HORRIS_DEPLOYMENT_BLOCK = optionalBlock(process.env.NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK);
 export const ALLOW_WALLET_DIRECT_DEMO = process.env.NEXT_PUBLIC_ALLOW_WALLET_DIRECT_DEMO === "true";
 
