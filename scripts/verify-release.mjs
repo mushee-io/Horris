@@ -3,10 +3,12 @@ import path from "node:path";
 
 const root = process.cwd();
 const required = [
+  "app/api/health/route.ts",
   "app/api/perps/advisor/route.ts",
   "app/api/perps/order-preview/route.ts",
   "app/api/perps/protection-preview/route.ts",
   "app/api/perps/risk-state/route.ts",
+  "lib/runtime-config.ts",
   "lib/groq-perp-advisor.ts",
   "lib/perp-ai-boundary.ts",
   "lib/perp-safety-orchestrator.ts",
@@ -36,9 +38,13 @@ if (groq.includes("NEXT_PUBLIC_GROQ")) failures.push("Groq provider must never r
 const riskState = fs.readFileSync(path.join(root, "app/api/perps/risk-state/route.ts"), "utf8");
 if (!riskState.includes("freezeNewRisk")) failures.push("live risk-state route must expose freezeNewRisk");
 
+const health = fs.readFileSync(path.join(root, "app/api/health/route.ts"), "utf8");
+if (!health.includes("getHorrisRuntimeReadiness")) failures.push("health endpoint must report deploy-time readiness without exposing secrets");
+if (!health.includes("secretsExposed: false")) failures.push("health endpoint must explicitly declare secrets are not exposed");
+
 if (failures.length) {
   console.error("Horris release gate failed:\n- " + failures.join("\n- "));
   process.exit(1);
 }
 
-console.log("Horris release gate passed: AI remains non-executable, secrets are server-only, and protection freeze wiring is present.");
+console.log("Horris release gate passed: AI remains non-executable, secrets are server-only, protection freeze wiring is present, and runtime readiness is observable.");
