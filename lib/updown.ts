@@ -37,6 +37,15 @@ export const UPDOWN_MARKETS: readonly UpDownMarket[] = [
   { symbol: "GBPm", marketToken: "0xc439330b3D59Be316936Ff62d1d22b377656Fc20", indexToken: "0x7Ef503a2722cdfa7E99f2A59771f7E2390c2DF76", longToken: "0x7Ef503a2722cdfa7E99f2A59771f7E2390c2DF76", shortToken: "0xd96a1ac57a180a3819633bCE3dC602Bd8972f595", quoteSymbol: "USDT" },
 ] as const;
 
+function normalizeUpDownSymbol(symbol: string) {
+  let value = symbol.trim().toUpperCase().replace(/\s+/g, "");
+  value = value.replace(/(?:[-_/]?PERP(?:ETUALS?)?)$/, "");
+  value = value.replace(/(?:[-_/]?(?:USDT0?|USD))$/, "");
+  return value;
+}
+
 export function getUpDownMarket(symbol: string) {
-  return UPDOWN_MARKETS.find((market) => market.symbol.toLowerCase() === symbol.toLowerCase());
+  const normalized = normalizeUpDownSymbol(symbol);
+  if (!normalized) return undefined;
+  return UPDOWN_MARKETS.find((market) => market.symbol.toUpperCase() === normalized);
 }
