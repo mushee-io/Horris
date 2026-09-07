@@ -203,4 +203,4 @@ export default function TerminalPage() {
   </main>;
 }
 
-declare global { interface Window { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<any> }; } } }
+declare global { interface Window { ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<any> }; } }
