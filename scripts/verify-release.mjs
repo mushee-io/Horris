@@ -9,6 +9,7 @@ const required = [
   "app/api/perps/protection-preview/route.ts",
   "app/api/perps/risk-state/route.ts",
   "components/HorrisAiDock.tsx",
+  "lib/http-safety.ts",
   "lib/runtime-config.ts",
   "lib/horris-contracts.ts",
   "lib/groq-perp-advisor.ts",
@@ -19,6 +20,7 @@ const required = [
   "lib/updown-capabilities.ts",
   "docs/DEPLOYMENT.md",
   ".env.example",
+  "next.config.ts",
 ];
 
 const failures = [];
@@ -30,18 +32,26 @@ const envExample = fs.readFileSync(path.join(root, ".env.example"), "utf8");
 if (!envExample.includes("GROQ_API_KEY=")) failures.push(".env.example must document GROQ_API_KEY");
 if (/NEXT_PUBLIC_[A-Z0-9_]*(GROQ|PRIVATE|SECRET|TOKEN|KEY)/.test(envExample)) failures.push("sensitive server credential appears under NEXT_PUBLIC_ in .env.example");
 if (!envExample.includes("NEXT_PUBLIC_ALLOW_WALLET_DIRECT_DEMO=false")) failures.push("wallet-direct demo must default to disabled");
+if (!envExample.includes("DO NOT SET PRIVATE KEYS IN VERCEL")) failures.push(".env.example must explicitly keep deployment private keys out of Vercel");
 
 const advisor = fs.readFileSync(path.join(root, "app/api/perps/advisor/route.ts"), "utf8");
 if (!advisor.includes("executionEnabled: false")) failures.push("AI advisor must remain explicitly non-executable");
 if (!advisor.includes("requestGroqPerpProposal")) failures.push("AI advisor route is not wired to the Groq provider boundary");
+if (!advisor.includes("readBoundedJson")) failures.push("AI advisor must enforce a streamed body-size limit");
+if (!advisor.includes("checkBurstRateLimit")) failures.push("AI advisor must enforce burst protection");
+if (!advisor.includes("isCrossSiteBrowserRequest")) failures.push("AI advisor must reject cross-site browser requests");
 
 const groq = fs.readFileSync(path.join(root, "lib/groq-perp-advisor.ts"), "utf8");
 if (!groq.includes("process.env.GROQ_API_KEY")) failures.push("Groq provider must read its key from server environment");
 if (groq.includes("NEXT_PUBLIC_GROQ")) failures.push("Groq provider must never read a public browser environment variable");
+if (!groq.includes('redirect: "error"')) failures.push("Groq provider must reject redirects");
+if (!groq.includes('cache: "no-store"')) failures.push("Groq provider requests must not be cached");
+if (!groq.includes("maxProviderResponseBytes")) failures.push("Groq provider response size must be bounded");
 
 const deployment = fs.readFileSync(path.join(root, "lib/horris-contracts.ts"), "utf8");
 if (!deployment.includes("0xEd97E9c79599CFB671D59063F8aE446b9C5e0497")) failures.push("real Celo Sepolia vault must remain pinned");
 if (!deployment.includes("0xbf1abbE40d9B4Fea970Cf9E2b397109eC1D06CEc")) failures.push("real Celo Sepolia Mento adapter must remain pinned");
+if (!deployment.includes("must be a valid 20-byte EVM address")) failures.push("malformed deployment overrides must fail closed");
 
 const capabilities = fs.readFileSync(path.join(root, "lib/updown-capabilities.ts"), "utf8");
 if (!capabilities.includes("testnetExecutionSupported: false")) failures.push("UpDown testnet execution must remain explicitly unsupported");
@@ -53,14 +63,20 @@ if (!riskState.includes("freezeNewRisk")) failures.push("live risk-state route m
 const health = fs.readFileSync(path.join(root, "app/api/health/route.ts"), "utf8");
 if (!health.includes("getHorrisRuntimeReadiness")) failures.push("health endpoint must report deploy-time readiness without exposing secrets");
 if (!health.includes("secretsExposed: false")) failures.push("health endpoint must explicitly declare secrets are not exposed");
+if (!health.includes("executionEnabled: false")) failures.push("health endpoint must state execution is disabled");
 
 const aiDock = fs.readFileSync(path.join(root, "components/HorrisAiDock.tsx"), "utf8");
 if (!aiDock.includes("/api/perps/advisor")) failures.push("dashboard AI dock must use the hardened Horris advisor endpoint");
 if (!/execution locked/i.test(aiDock)) failures.push("dashboard AI dock must visibly keep execution locked");
+
+const nextConfig = fs.readFileSync(path.join(root, "next.config.ts"), "utf8");
+for (const directive of ["Content-Security-Policy", "frame-ancestors 'none'", "object-src 'none'", "Strict-Transport-Security", "X-Frame-Options", "Referrer-Policy"]) {
+  if (!nextConfig.includes(directive)) failures.push(`security header missing: ${directive}`);
+}
 
 if (failures.length) {
   console.error("Horris release gate failed:\n- " + failures.join("\n- "));
   process.exit(1);
 }
 
-console.log("Horris release gate passed: real testnet deployment pinned, AI server-only/non-executable, UpDown broadcast locked, protection freeze wired, and Vercel runtime readiness observable.");
+console.log("Horris release gate passed: testnet deployment pinned, public config fail-closed, AI server-only/non-executable and anti-abuse bounded, CSP/security headers enforced, UpDown broadcast locked, protection freeze wired, and Vercel readiness observable.");
