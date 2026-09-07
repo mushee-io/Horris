@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Horris</title>
+  <desc id="desc">Horris ERC-8004 agent identity mark</desc>
+  <rect width="1200" height="1200" fill="#080808"/>
+  <rect x="64" y="64" width="1072" height="1072" fill="none" stroke="#f5f2e9" stroke-width="4"/>
+  <path d="M170 238h86v280h250V238h86v724h-86V604H256v358h-86V238Z" fill="#f5f2e9"/>
+  <text x="674" y="318" fill="#f5f2e9" font-family="Arial, Helvetica, sans-serif" font-size="74" font-weight="700" letter-spacing="-4">HORRIS</text>
+  <text x="677" y="386" fill="#8c8c88" font-family="monospace" font-size="26" letter-spacing="4">AI / POLICY / CELO</text>
+  <line x1="677" y1="452" x2="1026" y2="452" stroke="#444" stroke-width="2"/>
+  <text x="677" y="526" fill="#f5f2e9" font-family="monospace" font-size="28">AI PROPOSES.</text>
+  <text x="677" y="578" fill="#f5f2e9" font-family="monospace" font-size="28">HORRIS CHECKS.</text>
+  <text x="677" y="630" fill="#f5f2e9" font-family="monospace" font-size="28">WALLET APPROVES.</text>
+  <line x1="677" y1="708" x2="1026" y2="708" stroke="#444" stroke-width="2"/>
+  <text x="677" y="770" fill="#8c8c88" font-family="monospace" font-size="22">ERC-8004</text>
+  <text x="677" y="812" fill="#8c8c88" font-family="monospace" font-size="22">EIP155:42220</text>
+  <circle cx="997" cy="969" r="30" fill="none" stroke="#f5f2e9" stroke-width="3"/>
+  <path d="M982 969h30M997 954v30" stroke="#f5f2e9" stroke-width="3"/>
+</svg>
