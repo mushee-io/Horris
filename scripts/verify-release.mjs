@@ -13,6 +13,7 @@ const required = [
   "lib/runtime-config.ts",
   "lib/horris-contracts.ts",
   "lib/groq-perp-advisor.ts",
+  "lib/perp-advisor.ts",
   "lib/perp-ai-boundary.ts",
   "lib/perp-safety-orchestrator.ts",
   "lib/perp-lifecycle.ts",
@@ -47,6 +48,12 @@ if (groq.includes("NEXT_PUBLIC_GROQ")) failures.push("Groq provider must never r
 if (!groq.includes('redirect: "error"')) failures.push("Groq provider must reject redirects");
 if (!groq.includes('cache: "no-store"')) failures.push("Groq provider requests must not be cached");
 if (!groq.includes("maxProviderResponseBytes")) failures.push("Groq provider response size must be bounded");
+if (!groq.includes("rationale must be qualitative only") || !groq.includes("sanitizeRationale")) failures.push("AI rationale must be kept qualitative and sanitized before clients receive it");
+if (!groq.includes("Numeric risk and P/L explanations are generated only by deterministic Horris policy")) failures.push("numeric risk/P&L authority must remain with deterministic Horris policy");
+
+const deterministicAdvisor = fs.readFileSync(path.join(root, "lib/perp-advisor.ts"), "utf8");
+if (deterministicAdvisor.includes("Math.max(1, Math.min(maxMarginByUtilization")) failures.push("bounded advisor must not force a one-dollar margin onto micro balances");
+if (!deterministicAdvisor.includes("recommendedMarginUsd = Math.min(maxMarginByUtilization")) failures.push("bounded advisor must clamp margin to profile utilization for every balance size");
 
 const deployment = fs.readFileSync(path.join(root, "lib/horris-contracts.ts"), "utf8");
 if (!deployment.includes("0xEd97E9c79599CFB671D59063F8aE446b9C5e0497")) failures.push("real Celo Sepolia vault must remain pinned");
@@ -79,4 +86,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log("Horris release gate passed: testnet deployment pinned, public config fail-closed, AI server-only/non-executable and anti-abuse bounded, CSP/security headers enforced, UpDown broadcast locked, protection freeze wired, and Vercel readiness observable.");
+console.log("Horris release gate passed: deployment pinned, public config fail-closed, AI server-only/non-executable and qualitative, numeric risk math policy-authoritative, micro-balances bounded, anti-abuse limits active, CSP/security headers enforced, UpDown broadcast locked, protection freeze wired, and Vercel readiness observable.");
