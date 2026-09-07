@@ -40,7 +40,7 @@ if (!groq.includes("process.env.GROQ_API_KEY")) failures.push("Groq provider mus
 if (groq.includes("NEXT_PUBLIC_GROQ")) failures.push("Groq provider must never read a public browser environment variable");
 
 const deployment = fs.readFileSync(path.join(root, "lib/horris-contracts.ts"), "utf8");
-if (!deployment.includes("0xEd97E9c79599cFB671D59063F8aE446b9C5e0497")) failures.push("real Celo Sepolia vault must remain pinned");
+if (!deployment.includes("0xEd97E9c79599CFB671D59063F8aE446b9C5e0497")) failures.push("real Celo Sepolia vault must remain pinned");
 if (!deployment.includes("0xbf1abbE40d9B4Fea970Cf9E2b397109eC1D06CEc")) failures.push("real Celo Sepolia Mento adapter must remain pinned");
 
 const capabilities = fs.readFileSync(path.join(root, "lib/updown-capabilities.ts"), "utf8");
