@@ -8,8 +8,28 @@ type AiResult = {
   proposal?: { market: string; side: Side; risk: Risk; marginUsd: number; leverage: number; accountBalanceUsd: number; entryPrice: number; stopLoss: number; takeProfit: number; rationale: string };
   review?: { accepted: boolean; executable: false; authority: "horris-policy"; malformed?: string[] };
   executionEnabled: false;
+  provider?: "groq";
+  model?: string;
   error?: string;
+  code?: string;
+  retryable?: boolean;
 };
+
+function advisorStatus(data: AiResult) {
+  switch (data.code) {
+    case "AI_NOT_CONFIGURED": return "HORRIS AI NOT CONFIGURED · ADD GROQ_API_KEY IN VERCEL";
+    case "AI_PROVIDER_AUTH": return "GROQ REJECTED THE API KEY · REPLACE GROQ_API_KEY AND REDEPLOY";
+    case "AI_PROVIDER_RATE_LIMIT": return "GROQ RATE LIMIT REACHED · RETRY IN A MOMENT";
+    case "AI_TIMEOUT": return "GROQ TIMED OUT · HORRIS FALLBACK ALSO FAILED";
+    case "AI_INVALID_MODEL_CONFIG": return "INVALID GROQ_MODEL CONFIGURATION";
+    case "AI_PROVIDER_REQUEST": return "GROQ REJECTED THE MODEL REQUEST · CHECK GROQ_MODEL";
+    case "AI_INVALID_RESPONSE": return "GROQ RETURNED AN INVALID STRUCTURED RESPONSE · RETRY";
+    case "AI_CONTEXT_MUTATION": return "AI OUTPUT VIOLATED IMMUTABLE TRADE CONTEXT · BLOCKED";
+    case "AI_PROVIDER_UNAVAILABLE": return "GROQ PROVIDER UNAVAILABLE · RETRY SHORTLY";
+    case "AI_RATE_LIMITED": return "HORRIS ADVISOR RATE LIMIT REACHED · RETRY SHORTLY";
+    default: return (data.error ?? "Horris AI unavailable").toUpperCase();
+  }
+}
 
 export default function HorrisAiDock() {
   const [market, setMarket] = useState("BTC");
@@ -32,11 +52,15 @@ export default function HorrisAiDock() {
         body: JSON.stringify({ market, side, risk, accountBalanceUsd: Number(accountBalanceUsd), entryPrice: Number(entryPrice) }),
       });
       const data = await response.json() as AiResult;
-      if (!response.ok) throw new Error(data.error ?? "Horris AI unavailable");
+      if (!response.ok) {
+        setStatus(advisorStatus(data));
+        setResult(data);
+        return;
+      }
       setResult(data);
-      setStatus(data.review?.accepted ? "PROPOSAL PASSED HORRIS POLICY REVIEW" : "PROPOSAL BLOCKED BY HORRIS POLICY");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message.toUpperCase() : "HORRIS AI UNAVAILABLE");
+      setStatus(data.review?.accepted ? `PROPOSAL PASSED HORRIS POLICY REVIEW · ${data.model ?? "GROQ"}` : "PROPOSAL BLOCKED BY HORRIS POLICY");
+    } catch {
+      setStatus("HORRIS AI NETWORK REQUEST FAILED · RETRY");
     } finally {
       setBusy(false);
     }
@@ -57,7 +81,7 @@ export default function HorrisAiDock() {
     <button className="terminal-action orange" disabled={busy} onClick={askHorris}>{busy ? "ANALYZING…" : "[ GENERATE BOUNDED PROPOSAL ]"}</button>
     <p className="terminal-status-line">{status}</p>
     <div className="ai-result">
-      {!result?.proposal ? <div className="terminal-empty"><span>—</span><p>AWAITING PROPOSAL</p></div> : <>
+      {!result?.proposal ? <div className="terminal-empty"><span>—</span><p>{result?.code ? result.code.replaceAll("_", " ") : "AWAITING PROPOSAL"}</p></div> : <>
         <div className="ai-result-top"><strong>{result.proposal.market} / {result.proposal.side.toUpperCase()}</strong><span>{result.proposal.leverage}×</span></div>
         <dl>
           <div><dt>MARGIN</dt><dd>${result.proposal.marginUsd.toFixed(2)}</dd></div>
