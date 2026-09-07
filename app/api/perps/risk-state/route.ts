@@ -9,7 +9,7 @@ import { getUpDownPositions } from "../../../../lib/updown-positions";
 const risks: PerpRiskProfile[] = ["Conservative", "Balanced", "Aggressive"];
 
 function json(data: unknown, status = 200) {
-  return NextResponse.json(data, { status, headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(data, { status, headers: { "Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff" } });
 }
 
 export async function GET(request: NextRequest) {
@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
     ]);
     const riskState = analyzePerpRiskState(positions, orders, riskParam as PerpRiskProfile);
     const sequences = positions.map((position) => derivePerpProtectionSequence(position.marketToken, position.side, positions, orders));
+    const freezeNewRisk = positions.length > 0 && (riskState.criticalCount > 0 || riskState.protections.some((item) => !item.fullyStopProtected || item.hasFrozenStop));
 
     return json({
       venue: "UpDown",
@@ -34,10 +35,12 @@ export async function GET(request: NextRequest) {
       orders,
       riskState,
       sequences,
+      freezeNewRisk,
+      authority: "horris-policy",
       readOnly: true,
       executionEnabled: false,
     });
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "Risk-state read failed", readOnly: true, executionEnabled: false }, 502);
+    return json({ error: error instanceof Error ? error.message : "Risk-state read failed", readOnly: true, executionEnabled: false, freezeNewRisk: true }, 502);
   }
 }
