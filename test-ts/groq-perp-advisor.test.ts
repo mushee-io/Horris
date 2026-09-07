@@ -42,6 +42,25 @@ describe("Groq perp advisor", () => {
     expect(result.review.accepted).toBe(true);
   });
 
+  it("replaces numeric AI risk/P&L rationale with a deterministic-policy boundary message", async () => {
+    process.env.GROQ_API_KEY = "test-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(providerResponse(validPayload({
+      ...proposal,
+      rationale: "At 2x leverage a 5% stop risks $10 and targets a 10% gain.",
+    }))));
+    const result = await requestGroqPerpProposal(input);
+    expect(result.proposal.rationale).toContain("Deterministic Horris policy supplies all numeric risk");
+    expect(result.proposal.rationale).not.toContain("$10");
+    expect(result.proposal.rationale).not.toContain("5%");
+  });
+
+  it("preserves qualitative AI rationale that makes no numeric risk claims", async () => {
+    process.env.GROQ_API_KEY = "test-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(providerResponse(validPayload({ ...proposal, rationale: "Uses a cautious directional setup and leaves final authority to policy." }))));
+    const result = await requestGroqPerpProposal(input);
+    expect(result.proposal.rationale).toBe("Uses a cautious directional setup and leaves final authority to policy.");
+  });
+
   it("retries a transient primary-model failure on the bounded fallback model", async () => {
     process.env.GROQ_API_KEY = "test-key";
     const fetchMock = vi.fn()
@@ -110,6 +129,8 @@ describe("Groq perp advisor", () => {
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     const body = JSON.parse(String(init.body));
     expect(body.messages[0].content).toContain("Never claim execution");
+    expect(body.messages[0].content).toContain("rationale must be qualitative only");
+    expect(body.messages[0].content).toContain("Numeric risk and P/L explanations are generated only by deterministic Horris policy");
     expect(body.reasoning_effort).toBe("low");
     expect(body.max_completion_tokens).toBe(1500);
     expect(body.response_format.json_schema.strict).toBe(true);
