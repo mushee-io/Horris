@@ -9,8 +9,13 @@ function optionalBlock(value?: string): bigint | undefined {
   return BigInt(value);
 }
 
-export const HORRIS_VAULT = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_VAULT);
-export const HORRIS_MENTO_ADAPTER = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_MENTO_ADAPTER);
+// Real Celo Sepolia deployment used by the Horris MVP. The adapter is the
+// deterministic CREATE sibling of the vault from the same deployer script.
+export const DEFAULT_HORRIS_VAULT = "0xEd97E9c79599cFB671D59063F8aE446b9C5e0497" as Address;
+export const DEFAULT_HORRIS_MENTO_ADAPTER = "0xbf1abbE40d9B4Fea970Cf9E2b397109eC1D06CEc" as Address;
+
+export const HORRIS_VAULT = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_VAULT) ?? DEFAULT_HORRIS_VAULT;
+export const HORRIS_MENTO_ADAPTER = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_MENTO_ADAPTER) ?? DEFAULT_HORRIS_MENTO_ADAPTER;
 export const HORRIS_DEPLOYMENT_BLOCK = optionalBlock(process.env.NEXT_PUBLIC_HORRIS_DEPLOYMENT_BLOCK);
 export const ALLOW_WALLET_DIRECT_DEMO = process.env.NEXT_PUBLIC_ALLOW_WALLET_DIRECT_DEMO === "true";
 
