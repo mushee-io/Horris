@@ -11,7 +11,7 @@ function optionalBlock(value?: string): bigint | undefined {
 
 // Real Celo Sepolia deployment used by the Horris MVP. The adapter is the
 // deterministic CREATE sibling of the vault from the same deployer script.
-export const DEFAULT_HORRIS_VAULT = "0xEd97E9c79599cFB671D59063F8aE446b9C5e0497" as Address;
+export const DEFAULT_HORRIS_VAULT = "0xEd97E9c79599CFB671D59063F8aE446b9C5e0497" as Address;
 export const DEFAULT_HORRIS_MENTO_ADAPTER = "0xbf1abbE40d9B4Fea970Cf9E2b397109eC1D06CEc" as Address;
 
 export const HORRIS_VAULT = optionalAddress(process.env.NEXT_PUBLIC_HORRIS_VAULT) ?? DEFAULT_HORRIS_VAULT;
