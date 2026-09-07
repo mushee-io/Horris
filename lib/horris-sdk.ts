@@ -6,6 +6,7 @@ import { derivePerpSafetyState, type PerpSafetyOrchestratorInput } from "./perp-
 import { buildUnsignedUpDownIncreaseOrderPlan } from "./updown-order";
 import { buildUnsignedUpDownCancelPlan } from "./updown-cancel";
 import { getUpDownMarket, UPDOWN_MARKETS, UPDOWN_CELO } from "./updown";
+import { UPDOWN_CAPABILITIES } from "./updown-capabilities";
 
 export const HorrisSDK = {
   analyzePerpIntent,
@@ -18,6 +19,7 @@ export const HorrisSDK = {
   getUpDownMarket,
   markets: UPDOWN_MARKETS,
   celo: UPDOWN_CELO,
+  upDownCapabilities: UPDOWN_CAPABILITIES,
 } as const;
 
 export type { PerpIntent, PerpExecutionGateInput, PerpSafetyOrchestratorInput, PerpAgentPermission, PerpAgentRequest };
