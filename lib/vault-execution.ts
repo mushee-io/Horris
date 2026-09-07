@@ -13,6 +13,20 @@ export type VaultExecutionPlan = {
   deadline?: number;
 };
 
+export class VaultExecutionUnavailableError extends Error {
+  readonly code = "TESTNET_LIQUIDITY_UNAVAILABLE" as const;
+
+  constructor() {
+    super("Mento testnet execution liquidity is currently unavailable. No transaction was submitted.");
+    this.name = "VaultExecutionUnavailableError";
+  }
+}
+
+function isMentoLiquidityError(error: unknown) {
+  const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return text.toLowerCase().includes("insufficientliquidity") || text.toLowerCase().includes("0xbb55fd27");
+}
+
 export async function executeVaultMentoPlan(wallet: WalletClient, account: Address, plan: VaultExecutionPlan) {
   if (!HORRIS_VAULT || !HORRIS_MENTO_ADAPTER) throw new Error("Horris vault deployment is not configured");
   if (!plan.routeData || plan.routeData === "0x") throw new Error("Mento route data is required");
@@ -21,6 +35,7 @@ export async function executeVaultMentoPlan(wallet: WalletClient, account: Addre
   const amount = Number(plan.amount);
   const amountIn = parseUnits(plan.amount, TOKENS.USDC.decimals);
   const policy = riskPolicy[plan.risk];
+  if (!policy) throw new Error("Unknown Horris risk policy");
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Execution amount must be positive");
   if (amount > policy.maxAllocation) throw new Error(`${plan.risk} execution cap exceeded`);
 
@@ -40,14 +55,21 @@ export async function executeVaultMentoPlan(wallet: WalletClient, account: Addre
   const deadline = plan.deadline ?? now + 5 * 60;
   if (deadline < now || deadline > now + 30 * 60) throw new Error("Execution deadline must be within 30 minutes");
 
-  const { request } = await publicClient.simulateContract({
-    account,
-    address: HORRIS_VAULT,
-    abi: horrisVaultAbi,
-    functionName: "execute",
-    args: [HORRIS_MENTO_ADAPTER, TOKENS.USDC.address, amountIn, plan.amountOutMin, plan.routeData, BigInt(deadline)],
-  });
+  let request;
+  try {
+    ({ request } = await publicClient.simulateContract({
+      account,
+      address: HORRIS_VAULT,
+      abi: horrisVaultAbi,
+      functionName: "execute",
+      args: [HORRIS_MENTO_ADAPTER, TOKENS.USDC.address, amountIn, plan.amountOutMin, plan.routeData, BigInt(deadline)],
+    }));
+  } catch (error) {
+    if (isMentoLiquidityError(error)) throw new VaultExecutionUnavailableError();
+    throw error;
+  }
 
+  // Never ask the wallet to sign unless the exact onchain execution simulation succeeded.
   const hash = await wallet.writeContract(request);
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status !== "success") throw new Error("Horris vault execution reverted");
