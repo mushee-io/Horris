@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import HorrisRouteFooter from "./HorrisRouteFooter";
 import HorrisRouteNav from "./HorrisRouteNav";
 
@@ -16,7 +17,7 @@ export default function HorrisSectionPage({
 }: {
   code: string;
   eyebrow: string;
-  title: string;
+  title: ReactNode;
   intro: string;
   modules: Module[];
   facts?: Fact[];
