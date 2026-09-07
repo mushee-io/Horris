@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
+import HorrisAiDock from "../components/HorrisAiDock";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Horis — AI Execution on Celo",
+  title: "Horris — AI Execution on Celo",
   description: "AI-powered DeFi execution with policy-enforced risk controls on Celo.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>{children}<HorrisAiDock /></body>
     </html>
   );
 }
