@@ -56,7 +56,7 @@ if (!health.includes("secretsExposed: false")) failures.push("health endpoint mu
 
 const aiDock = fs.readFileSync(path.join(root, "components/HorrisAiDock.tsx"), "utf8");
 if (!aiDock.includes("/api/perps/advisor")) failures.push("dashboard AI dock must use the hardened Horris advisor endpoint");
-if (!aiDock.includes("Execution locked")) failures.push("dashboard AI dock must visibly keep execution locked");
+if (!/execution locked/i.test(aiDock)) failures.push("dashboard AI dock must visibly keep execution locked");
 
 if (failures.length) {
   console.error("Horris release gate failed:\n- " + failures.join("\n- "));
