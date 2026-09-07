@@ -27,9 +27,9 @@ afterEach(() => {
 });
 
 describe("Groq perp advisor", () => {
-  it("fails closed when no API key is configured", async () => {
+  it("fails closed with an actionable code when no API key is configured", async () => {
     delete process.env.GROQ_API_KEY;
-    await expect(requestGroqPerpProposal(input)).rejects.toBeInstanceOf(AiAdvisorUnavailableError);
+    await expect(requestGroqPerpProposal(input)).rejects.toMatchObject({ code: "AI_NOT_CONFIGURED", retryable: false });
   });
 
   it("accepts structured output only as a non-executable proposal", async () => {
@@ -42,43 +42,67 @@ describe("Groq perp advisor", () => {
     expect(result.review.accepted).toBe(true);
   });
 
+  it("retries a transient primary-model failure on the bounded fallback model", async () => {
+    process.env.GROQ_API_KEY = "test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(providerResponse({}, { ok: false, status: 503 }))
+      .mockResolvedValueOnce(providerResponse(validPayload()));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await requestGroqPerpProposal(input);
+    expect(result.model).toBe("openai/gpt-oss-20b");
+    expect(result.executionEnabled).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry invalid credentials", async () => {
+    process.env.GROQ_API_KEY = "test-key";
+    const fetchMock = vi.fn().mockResolvedValue(providerResponse({}, { ok: false, status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(requestGroqPerpProposal(input)).rejects.toMatchObject({ code: "AI_PROVIDER_AUTH", retryable: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects provider mutation of immutable trade context", async () => {
     process.env.GROQ_API_KEY = "test-key";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(providerResponse(validPayload({ ...proposal, market: "ETH" }))));
-    await expect(requestGroqPerpProposal(input)).rejects.toThrow("mutated immutable trade context");
+    await expect(requestGroqPerpProposal(input)).rejects.toMatchObject({ code: "AI_CONTEXT_MUTATION" });
   });
 
   it("rejects malformed proposal JSON", async () => {
     process.env.GROQ_API_KEY = "test-key";
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(providerResponse({ choices: [{ message: { content: "not-json" } }] })));
-    await expect(requestGroqPerpProposal(input)).rejects.toBeInstanceOf(AiAdvisorUnavailableError);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(providerResponse({ choices: [{ message: { content: "not-json" } }] }))
+      .mockResolvedValueOnce(providerResponse(validPayload()));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await requestGroqPerpProposal(input);
+    expect(result.model).toBe("openai/gpt-oss-20b");
   });
 
-  it("rejects malformed provider JSON before proposal parsing", async () => {
+  it("rejects malformed provider JSON before proposal parsing when fallback also fails", async () => {
     process.env.GROQ_API_KEY = "test-key";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(providerResponse("not-provider-json", { raw: true })));
-    await expect(requestGroqPerpProposal(input)).rejects.toThrow("malformed provider JSON");
+    await expect(requestGroqPerpProposal(input)).rejects.toMatchObject({ code: "AI_INVALID_RESPONSE" });
   });
 
-  it("fails closed on provider errors", async () => {
+  it("fails closed on persistent rate limits", async () => {
     process.env.GROQ_API_KEY = "test-key";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(providerResponse({}, { ok: false, status: 429 })));
-    await expect(requestGroqPerpProposal(input)).rejects.toBeInstanceOf(AiAdvisorUnavailableError);
+    await expect(requestGroqPerpProposal(input)).rejects.toMatchObject({ code: "AI_PROVIDER_RATE_LIMIT", retryable: true });
   });
 
   it("rejects oversized provider responses", async () => {
     process.env.GROQ_API_KEY = "test-key";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(providerResponse("x", { raw: true, headers: { "content-length": "70000" } })));
-    await expect(requestGroqPerpProposal(input)).rejects.toThrow("size limit");
+    await expect(requestGroqPerpProposal(input)).rejects.toMatchObject({ code: "AI_INVALID_RESPONSE" });
   });
 
   it("fails closed on invalid model configuration", async () => {
     process.env.GROQ_API_KEY = "test-key";
     process.env.GROQ_MODEL = "bad model name";
-    await expect(requestGroqPerpProposal(input)).rejects.toThrow("model configuration is invalid");
+    await expect(requestGroqPerpProposal(input)).rejects.toMatchObject({ code: "AI_INVALID_MODEL_CONFIG" });
   });
 
-  it("sends no execution authority to the model and disables redirects/cache", async () => {
+  it("uses low reasoning, keeps strict JSON schema, and sends no execution authority", async () => {
     process.env.GROQ_API_KEY = "test-key";
     const fetchMock = vi.fn().mockResolvedValue(providerResponse(validPayload()));
     vi.stubGlobal("fetch", fetchMock);
@@ -86,8 +110,17 @@ describe("Groq perp advisor", () => {
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     const body = JSON.parse(String(init.body));
     expect(body.messages[0].content).toContain("Never claim execution");
+    expect(body.reasoning_effort).toBe("low");
+    expect(body.max_completion_tokens).toBe(1500);
+    expect(body.response_format.json_schema.strict).toBe(true);
     expect(String(init.body)).not.toContain("test-key");
     expect(init.redirect).toBe("error");
     expect(init.cache).toBe("no-store");
+  });
+
+  it("keeps typed provider failures inside the unavailable-error boundary", async () => {
+    process.env.GROQ_API_KEY = "test-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(providerResponse({}, { ok: false, status: 400 })));
+    await expect(requestGroqPerpProposal(input)).rejects.toBeInstanceOf(AiAdvisorUnavailableError);
   });
 });
