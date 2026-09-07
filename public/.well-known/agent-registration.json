@@ -1,0 +1,19 @@
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "Horris",
+  "description": "AI trading agent on Celo that converts natural-language trade intent into bounded proposals and routes every proposal through deterministic Horris risk policy before explicit external wallet approval.",
+  "image": "https://horris-delta.vercel.app/horris-agent.svg",
+  "services": [
+    {
+      "name": "web",
+      "endpoint": "https://horris-delta.vercel.app/"
+    },
+    {
+      "name": "web",
+      "endpoint": "https://horris-discord.vercel.app/"
+    }
+  ],
+  "x402Support": false,
+  "active": true,
+  "registrations": []
+}
