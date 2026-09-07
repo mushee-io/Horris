@@ -22,6 +22,13 @@ const strategies = {
 
 type VaultSnapshot = Awaited<ReturnType<typeof getVaultSnapshot>>;
 
+const featureCards = [
+  { no: "01", tag: "PERPS", title: "Perps", copy: "AI-native perpetual planning with deterministic Horris risk controls.", icon: "rings" },
+  { no: "02", tag: "POLICY", title: "Policy Engine", copy: "Onchain policy and replay-safe authorization for intelligent execution.", icon: "hex" },
+  { no: "03", tag: "SAFETY", title: "Execution Guard", copy: "Exact preflight, protection checks and fail-closed execution boundaries.", icon: "pyramid" },
+  { no: "04", tag: "INFRA", title: "Celo Infrastructure", copy: "Built for agents, traders and applications moving value on Celo.", icon: "stack" },
+] as const;
+
 export default function Home() {
   const [address, setAddress] = useState<Address>();
   const [risk, setRisk] = useState<HorrisRisk>("Balanced");
@@ -165,16 +172,84 @@ export default function Home() {
   const modeLabel = isHorrisDeployed ? "Vault execution mode" : ALLOW_WALLET_DIRECT_DEMO ? "Wallet-direct demo enabled" : "Quote-only · deployment required";
   const effectiveCap = isHorrisDeployed && vaultState ? Math.min(policy.maxAllocation, Number(vaultState.executionCap)) : policy.maxAllocation;
 
-  return <main>
-    <nav className="nav shell"><div className="brand">HORRIS<span>.</span></div><div className="navlinks"><a href="#engine">Stable route</a><a href="#perps">Perps</a><a href="#monitor">Monitor</a><a href="#vault">Vault</a><a href="#activity">Activity</a></div><button className="button button-small" onClick={connectWallet}>{address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "Connect wallet"}</button></nav>
-    <section className="hero shell"><div><p className="eyebrow">AI EXECUTION INFRASTRUCTURE · CELO</p><h1>Intent in.<br />Risk enforced.<br /><em>Execution out.</em></h1><p className="lede">Horris is becoming the policy layer between users, agents and Celo trading venues — stablecoin execution today, hardened perpetual risk orchestration next.</p></div><div className="network-card"><span className="dot" /> CELO SEPOLIA<strong>{modeLabel}</strong><small>Mento proof adapter hardened · UpDown perp analysis and live monitoring integrated · perp execution locked pending adapter verification.</small></div></section>
-    <section id="engine" className="workspace shell"><div className="panel builder"><div className="panel-head"><span>01</span><h2>Set stable intent</h2></div><label>USDC allocation <small>{isHorrisDeployed && vaultState ? `Vault: ${Number(vaultState.usdc).toFixed(2)}` : `Wallet: ${Number(balance).toFixed(2)}`}</small></label><div className="amount-wrap"><input value={amount} onChange={(e) => { setAmount(e.target.value); setQuote(""); }} inputMode="decimal" /><span>USDC</span></div><label>Risk policy</label><div className="risk-grid">{(["Conservative", "Balanced", "Aggressive"] as HorrisRisk[]).map((item) => <button key={item} className={risk === item ? "risk active" : "risk"} onClick={() => { setRisk(item); setQuote(""); }}>{item}</button>)}</div><button className="button primary" disabled={busy} onClick={reviewStrategy}>{busy ? "Checking…" : "Review live strategy"}</button><p className="status">{status}</p></div>
-    <div id="policy" className="panel strategy"><div className="panel-head"><span>02</span><h2>Horris stable proposal</h2></div><div className="strategy-title"><div><p>LIVE TESTNET ROUTE</p><h3>{strategy.title}</h3></div><span className="badge">{risk}</span></div><p className="summary">Convert test USDC into Mento USDm through Horris' pinned Mento Router and approved FPMM factory on Celo Sepolia.</p><div className="metrics"><div><small>ROUTE</small><strong>USDC → USDm</strong></div><div><small>MAX EXECUTION</small><strong>{effectiveCap} USDC</strong></div><div><small>POLICY</small><strong>{isHorrisDeployed && vaultState ? `${vaultState.maxSlippagePercent}% onchain` : strategy.target}</strong></div></div><div className="policy-box"><div><span className="check">✓</span><p><strong>Asset policy</strong><small>Input USDC and output USDm are explicitly allowlisted.</small></p></div><div><span className="check">✓</span><p><strong>Route policy</strong><small>Mento Router and FPMM factory are pinned; arbitrary factories are rejected.</small></p></div><div><span className="check">✓</span><p><strong>Risk policy</strong><small>Minimum output is checked against an onchain router quote, not an agent-reported slippage value.</small></p></div></div>{quote && <div className="policy-box"><div><span className="check">→</span><p><strong>{amount} USDC ≈ {Number(quote).toFixed(4)} USDm</strong><small>{isHorrisDeployed ? "The exact vault transaction is simulated against current onchain policy before signing." : ALLOW_WALLET_DIRECT_DEMO ? "Wallet-direct mode is explicitly enabled for testnet demonstration." : "Quote-only mode: deploy the Horris vault to enable execution."}</small></p></div><button className="button primary" disabled={busy || !executionEnabled} onClick={executeStrategy}>{busy ? "Executing…" : isHorrisDeployed ? "Execute through Horris Vault" : ALLOW_WALLET_DIRECT_DEMO ? "Execute wallet-direct demo" : "Deploy Horris to execute"}</button></div>}</div></section>
+  return <main className="site-frame">
+    <nav className="masthead grid-shell">
+      <a className="horris-mark" href="#top"><span className="h-icon">H</span><strong>Horris</strong></a>
+      <div className="mast-nav"><a href="#product">Product</a><a href="#console">Execution</a><a href="#perps">Perps</a><a href="#monitor">Monitor</a><a href="#docs">Docs</a></div>
+      <div className="mast-status"><span className="status-dot" /> TESTNET LIVE</div>
+      <button className="cut-button" onClick={connectWallet}>{address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "Connect Wallet"}<span>↗</span></button>
+    </nav>
+
+    <section id="top" className="hero-grid grid-shell">
+      <div className="section-index">01</div>
+      <div className="hero-copy">
+        <div className="micro-row"><span className="micro-tag"><i /> LIVE</span><span>THE EXECUTION LAYER<br/>FOR AN INTELLIGENT ONCHAIN ECONOMY</span></div>
+        <h1>AI execution,<br/><span>governed.</span></h1>
+        <p>Horris turns trade intent into policy-checked onchain execution.</p>
+        <div className="hero-actions"><a className="cut-button dark" href="#console">Open Execution <span>↗</span></a><a className="outline-button" href="#product">Explore Product <span>↗</span></a></div>
+      </div>
+      <div className="hero-art" aria-hidden="true">
+        <div className="orbit orbit-a"/><div className="orbit orbit-b"/>
+        <div className="float-cube cube-a"/><div className="float-cube cube-b"/><div className="float-cube cube-c"/>
+        <div className="float-sphere"/><div className="float-slab slab-a"/><div className="float-slab slab-b"/>
+        <div className="hero-axis">INTENT<br/>POLICY<br/>EXECUTION<br/>CONTROL</div>
+      </div>
+      <aside className="manifesto-panel">
+        <span>// GLOBAL EXECUTION INFRASTRUCTURE</span>
+        <h2>OPEN<br/>EXECUTION<br/>WITHOUT<br/>BLIND TRUST.</h2>
+        <p>AI meets crypto.<br/>Policy meets performance.</p>
+        <b>↗</b>
+      </aside>
+    </section>
+
+    <section id="product" className="feature-matrix grid-shell">
+      <div className="section-index">02</div>
+      {featureCards.map((feature) => <article className="feature-card" key={feature.tag}>
+        <div className="feature-top"><span>{feature.tag}</span><b>↗</b></div>
+        <div className={`mono-icon ${feature.icon}`} aria-hidden="true"><i/><i/><i/></div>
+        <h3>{feature.title}</h3>
+        <p>{feature.copy}</p>
+        <footer><span>{feature.no}</span><small>HORRIS / {feature.tag}</small></footer>
+      </article>)}
+      <aside className="metrics-panel">
+        <div className="metrics-label">// SYSTEM STATUS</div>
+        <div className="bars"><i/><i/><i/><i/><i/></div>
+        <strong>99.99%</strong><small>READINESS TARGET</small>
+        <div className="metric-strip"><span>AI<em>GROQ</em></span><span>POLICY<em>LOCKED</em></span><span>EXEC<em>FAIL-CLOSED</em></span></div>
+      </aside>
+    </section>
+
+    <section className="infra-band grid-shell">
+      <div className="section-index inverse">03</div>
+      <div className="infra-copy">
+        <span>// THE INFRASTRUCTURE LAYER</span>
+        <h2>The execution<br/>layer for what’s next.</h2>
+        <p>Horris provides infrastructure for AI agents, traders and applications to execute onchain with policy, safety and transparent control.</p>
+        <a href="#console" className="outline-button light">Enter Console <span>↗</span></a>
+      </div>
+      <div className="infra-art" aria-hidden="true">
+        <div className="planet"/><div className="planet-ring ring-one"/><div className="planet-ring ring-two"/>
+        <div className="mini-cube mini-one"/><div className="mini-cube mini-two"/><div className="mini-cube mini-three"/>
+        <span>AGENTS<br/>TRADERS<br/>APPLICATIONS<br/>ONCHAIN</span>
+      </div>
+      <div className="infra-side"><span>[ A MORE OPEN ECONOMY ]</span><h3>Execution<br/>for everyone.</h3><p>From autonomous agents to global traders, Horris unlocks a safer execution layer.</p><div className="celo-note">BUILT ON CELO <b>↗</b></div></div>
+    </section>
+
+    <section id="console" className="console-intro grid-shell">
+      <div className="section-index">04</div>
+      <div><span className="mono-label">LIVE EXECUTION CONSOLE</span><h2>Policy before action.</h2><p>The visual system changes. The safety model does not. Every action below still runs through the existing Horris policy and preflight boundaries.</p></div>
+      <div className="console-status"><span className="status-dot" /> CELO SEPOLIA<strong>{modeLabel}</strong><small>Mento proof adapter hardened · UpDown execution remains intentionally locked where genuine venue support is unavailable.</small></div>
+    </section>
+
+    <section id="engine" className="workspace shell technical-workspace"><div className="panel builder"><div className="panel-head"><span>01</span><h2>Set stable intent</h2></div><label>USDC allocation <small>{isHorrisDeployed && vaultState ? `Vault: ${Number(vaultState.usdc).toFixed(2)}` : `Wallet: ${Number(balance).toFixed(2)}`}</small></label><div className="amount-wrap"><input value={amount} onChange={(e) => { setAmount(e.target.value); setQuote(""); }} inputMode="decimal" /><span>USDC</span></div><label>Risk policy</label><div className="risk-grid">{(["Conservative", "Balanced", "Aggressive"] as HorrisRisk[]).map((item) => <button key={item} className={risk === item ? "risk active" : "risk"} onClick={() => { setRisk(item); setQuote(""); }}>{item}</button>)}</div><button className="button primary" disabled={busy} onClick={reviewStrategy}>{busy ? "Checking…" : "Review live strategy"}</button><p className="status">{status}</p></div>
+    <div id="policy" className="panel strategy"><div className="panel-head"><span>02</span><h2>Horris stable proposal</h2></div><div className="strategy-title"><div><p>LIVE TESTNET ROUTE</p><h3>{strategy.title}</h3></div><span className="badge">{risk}</span></div><p className="summary">Convert test USDC into Mento USDm through Horris&apos; pinned Mento Router and approved FPMM factory on Celo Sepolia.</p><div className="metrics"><div><small>ROUTE</small><strong>USDC → USDm</strong></div><div><small>MAX EXECUTION</small><strong>{effectiveCap} USDC</strong></div><div><small>POLICY</small><strong>{isHorrisDeployed && vaultState ? `${vaultState.maxSlippagePercent}% onchain` : strategy.target}</strong></div></div><div className="policy-box"><div><span className="check">✓</span><p><strong>Asset policy</strong><small>Input USDC and output USDm are explicitly allowlisted.</small></p></div><div><span className="check">✓</span><p><strong>Route policy</strong><small>Mento Router and FPMM factory are pinned; arbitrary factories are rejected.</small></p></div><div><span className="check">✓</span><p><strong>Risk policy</strong><small>Minimum output is checked against an onchain router quote, not an agent-reported slippage value.</small></p></div></div>{quote && <div className="policy-box"><div><span className="check">→</span><p><strong>{amount} USDC ≈ {Number(quote).toFixed(4)} USDm</strong><small>{isHorrisDeployed ? "The exact vault transaction is simulated against current onchain policy before signing." : ALLOW_WALLET_DIRECT_DEMO ? "Wallet-direct mode is explicitly enabled for testnet demonstration." : "Quote-only mode: deploy the Horris vault to enable execution."}</small></p></div><button className="button primary" disabled={busy || !executionEnabled} onClick={executeStrategy}>{busy ? "Executing…" : isHorrisDeployed ? "Execute through Horris Vault" : ALLOW_WALLET_DIRECT_DEMO ? "Execute wallet-direct demo" : "Deploy Horris to execute"}</button></div>}</div></section>
+
     <PerpRiskPanel account={address} />
     <div id="monitor"><PerpMonitorPanel account={address} /></div>
     <div id="vault" className="shell"><VaultPanel account={address} /></div>
     <ActivityPanel latestTx={txHash} />
-    <footer className="shell"><div className="brand">HORRIS<span>.</span></div><p>AI execution with enforceable risk controls.</p><p>Celo · Testnet MVP</p></footer>
+
+    <footer id="docs" className="site-footer grid-shell"><a className="horris-mark" href="#top"><span className="h-icon inverted">H</span><strong>Horris</strong></a><p>AI EXECUTION<br/>FOR A SAFER ONCHAIN ECONOMY.</p><nav><a href="#product">Product</a><a href="#console">Execution</a><a href="#perps">Perps</a><a href="#monitor">Monitor</a></nav><small>// CELO TESTNET · HORRIS</small></footer>
   </main>;
 }
 
