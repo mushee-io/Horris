@@ -19,4 +19,18 @@ describe("Horris runtime readiness", () => {
     expect(state.celoSepoliaRpcConfigured).toBe(true);
     expect(state.celoMainnetRpcConfigured).toBe(true);
   });
+
+  it("rejects malformed contract addresses even when they are non-empty", () => {
+    const state = getHorrisRuntimeReadiness({
+      NODE_ENV: "test",
+      GROQ_API_KEY: "test-only",
+      NEXT_PUBLIC_HORRIS_VAULT: "not-an-address",
+      NEXT_PUBLIC_HORRIS_MENTO_ADAPTER: "0x1234",
+      HORRIS_UPDOWN_AUTHORIZATION: "configured-but-invalid",
+    } as NodeJS.ProcessEnv);
+    expect(state.vaultConfigured).toBe(false);
+    expect(state.mentoAdapterConfigured).toBe(false);
+    expect(state.perpAuthorizationConfigured).toBe(false);
+    expect(state.readyForVercelSmokeTest).toBe(false);
+  });
 });
